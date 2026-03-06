@@ -1423,6 +1423,39 @@ class ChartsStrategyImport(BaseModel):
     backtest_summary: Optional[Dict[str, Any]] = None  # {pf, wr, trades, ...}
 
 
+@app.get("/charts-strategies")
+def get_charts_strategies():
+    """
+    Return all strategies previously imported from the charts app.
+    Used by the charts front-end to load strategies for background signal overlay.
+    """
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT id, strategy_name, entry_rules, exit_rules,
+                           risk_params, backtest_summary, created_at
+                    FROM charts_strategies
+                    ORDER BY created_at DESC
+                """)
+                rows = cur.fetchall()
+                strategies = []
+                for row in rows:
+                    strategies.append({
+                        "id":               row[0],
+                        "strategy_name":    row[1],
+                        "entry_rules":      row[2],
+                        "exit_rules":       row[3],
+                        "risk_params":      row[4],
+                        "backtest_summary": row[5],
+                        "created_at":       row[6].isoformat() if row[6] else None,
+                    })
+                return {"strategies": strategies, "count": len(strategies)}
+    except Exception as e:
+        logger.error("get_charts_strategies_error", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/import_charts_strategy")
 def import_charts_strategy(payload: ChartsStrategyImport):
     """
