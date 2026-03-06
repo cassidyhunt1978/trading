@@ -143,10 +143,68 @@ body { overscroll-behavior: none; }
     display: block;
 }
 
+/* ─── Mobile Responsive ─────────────────────────────────────────────────── */
 @media (max-width: 640px) {
-    .symbol-card { padding: 16px; }
-    .modal-content { max-height: 80vh; }
-    .tab-btn { padding: 8px 16px; font-size: 14px; }
+    /* Cards */
+    .symbol-card { padding: 14px; border-radius: 8px; }
+
+    /* Modal */
+    .modal-content {
+        width: 100% !important;
+        min-width: 0 !important;
+        max-height: 92vh;
+        border-radius: 12px 12px 0 0;
+        margin: auto 0 0 0;
+    }
+    .modal-overlay { padding: 0; align-items: flex-end; }
+
+    /* Nav tabs — scrollable, compact */
+    .tab-btn {
+        padding: 10px 14px;
+        font-size: 13px;
+        white-space: nowrap;
+        flex-shrink: 0;
+    }
+
+    /* Toast — full width on mobile */
+    .toast {
+        top: 8px;
+        right: 8px;
+        left: 8px;
+        max-width: 100%;
+        font-size: 14px;
+        padding: 12px 14px;
+    }
+
+    /* Stat boxes — two per row */
+    .stat-box {
+        padding: 6px 10px;
+    }
+    .stat-value { font-size: 14px; }
+
+    /* Action buttons — minimum touch target 44 px */
+    .action-btn {
+        padding: 12px 10px;
+        font-size: 13px;
+        min-height: 44px;
+    }
+
+    /* Text scaling */
+    h2 { font-size: 1.25rem !important; }
+    h3 { font-size: 1rem !important; }
+
+    /* Tables: allow horizontal scroll */
+    table { font-size: 12px; }
+
+    /* Generic buttons — touch-friendly minimum */
+    button, .btn {
+        min-height: 40px;
+    }
+}
+
+@media (max-width: 400px) {
+    .tab-btn { padding: 8px 10px; font-size: 12px; }
+    .symbol-card { padding: 10px; }
 }
 /* Collapsible Sections */
 .collapsible-content {

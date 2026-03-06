@@ -1,0 +1,316 @@
+        <!-- Reports / Accountability Tab -->
+        <div id="tab-reports" class="tab-content p-4">
+            <div class="max-w-5xl mx-auto space-y-6">
+
+                <!-- Header -->
+                <div class="flex justify-between items-center flex-wrap gap-3">
+                    <div>
+                        <h2 class="text-2xl font-bold">📊 Reports & Accountability</h2>
+                        <p class="text-sm text-gray-400">Live proof the system is working: equity, win-rates, trust rankings</p>
+                    </div>
+                    <button onclick="loadReports()" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-semibold">↻ Refresh</button>
+                </div>
+
+                <!-- Mode / Streak Banner -->
+                <div id="reports-streak-banner" class="bg-gray-800 rounded-lg p-4">
+                    <div class="text-sm text-gray-400 mb-2 font-semibold uppercase tracking-wide">Trading Mode Summary</div>
+                    <div class="flex flex-wrap gap-4">
+                        <div class="flex items-center gap-2">
+                            <span class="w-3 h-3 rounded-full bg-green-500 inline-block"></span>
+                            <span class="text-sm">Live: <strong id="streak-live-count">—</strong></span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="w-3 h-3 rounded-full bg-yellow-500 inline-block"></span>
+                            <span class="text-sm">Paper: <strong id="streak-paper-count">—</strong></span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="w-3 h-3 rounded-full bg-red-500 inline-block"></span>
+                            <span class="text-sm">Stopped: <strong id="streak-stopped-count">—</strong></span>
+                        </div>
+                        <div class="flex items-center gap-2 ml-auto">
+                            <span class="text-xs text-gray-500">Total symbols:</span>
+                            <strong id="streak-total-count">—</strong>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Accountability KPIs -->
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div class="bg-gray-800 rounded-lg p-4 text-center">
+                        <div class="text-xs text-gray-400 mb-1 uppercase tracking-wide">Win Rate</div>
+                        <div id="kpi-win-rate" class="text-2xl font-bold text-green-400">—</div>
+                        <div class="text-xs text-gray-500 mt-1" id="kpi-win-rate-sub">closed trades</div>
+                    </div>
+                    <div class="bg-gray-800 rounded-lg p-4 text-center">
+                        <div class="text-xs text-gray-400 mb-1 uppercase tracking-wide">Profitable Days</div>
+                        <div id="kpi-profitable-days" class="text-2xl font-bold text-blue-400">—</div>
+                        <div class="text-xs text-gray-500 mt-1">of logged days</div>
+                    </div>
+                    <div class="bg-gray-800 rounded-lg p-4 text-center">
+                        <div class="text-xs text-gray-400 mb-1 uppercase tracking-wide">Avg Signal Quality</div>
+                        <div id="kpi-signal-quality" class="text-2xl font-bold text-purple-400">—</div>
+                        <div class="text-xs text-gray-500 mt-1">last 30 days</div>
+                    </div>
+                    <div class="bg-gray-800 rounded-lg p-4 text-center">
+                        <div class="text-xs text-gray-400 mb-1 uppercase tracking-wide">Fee Drag</div>
+                        <div id="kpi-fee-drag" class="text-2xl font-bold text-orange-400">—</div>
+                        <div class="text-xs text-gray-500 mt-1">of realized P&L</div>
+                    </div>
+                </div>
+
+                <!-- Equity Curve -->
+                <div class="bg-gray-800 rounded-lg p-4">
+                    <div class="flex justify-between items-center mb-3 flex-wrap gap-2">
+                        <h3 class="text-lg font-bold">📈 Equity Curve</h3>
+                        <div class="flex gap-2">
+                            <button onclick="loadEquityCurve(7)" class="px-3 py-1 rounded bg-gray-700 hover:bg-gray-600 text-xs equity-range-btn" data-days="7">7d</button>
+                            <button onclick="loadEquityCurve(30)" class="px-3 py-1 rounded bg-blue-600 text-xs equity-range-btn active-range" data-days="30">30d</button>
+                            <button onclick="loadEquityCurve(90)" class="px-3 py-1 rounded bg-gray-700 hover:bg-gray-600 text-xs equity-range-btn" data-days="90">90d</button>
+                        </div>
+                    </div>
+                    <div class="relative" style="height: 220px;">
+                        <canvas id="equity-curve-chart"></canvas>
+                        <div id="equity-curve-empty" class="absolute inset-0 flex items-center justify-center text-gray-500 text-sm" style="display:none!important">
+                            No portfolio snapshots yet — start trading to build history.
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Daily P&L Log -->
+                <div class="bg-gray-800 rounded-lg p-4">
+                    <h3 class="text-lg font-bold mb-3">📅 Daily P&L Log</h3>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm">
+                            <thead>
+                                <tr class="text-gray-400 border-b border-gray-700">
+                                    <th class="text-left pb-2 pr-3">Date</th>
+                                    <th class="text-right pb-2 pr-3">P&L</th>
+                                    <th class="text-right pb-2 pr-3">Trades</th>
+                                    <th class="text-right pb-2 pr-3">Win Rate</th>
+                                    <th class="text-center pb-2">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="daily-log-tbody">
+                                <tr><td colspan="5" class="text-center py-8 text-gray-500">Loading...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Trust Rankings -->
+                <div class="bg-gray-800 rounded-lg p-4">
+                    <div class="flex justify-between items-center mb-3 flex-wrap gap-2">
+                        <h3 class="text-lg font-bold">🏆 Strategy Trust Rankings</h3>
+                        <div class="flex gap-2 items-center">
+                            <input id="trust-symbol-filter" type="text" placeholder="Filter by symbol…"
+                                class="bg-gray-700 border border-gray-600 rounded px-3 py-1 text-sm w-36"
+                                oninput="loadTrustRankings()">
+                            <button onclick="loadTrustRankings()" class="px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded text-sm">↻</button>
+                        </div>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm">
+                            <thead>
+                                <tr class="text-gray-400 border-b border-gray-700">
+                                    <th class="text-left pb-2 pr-3">Symbol</th>
+                                    <th class="text-left pb-2 pr-3">Strategy</th>
+                                    <th class="text-right pb-2 pr-3">Trust</th>
+                                    <th class="text-right pb-2 pr-3">PF</th>
+                                    <th class="text-right pb-2 pr-3">Win%</th>
+                                    <th class="text-right pb-2 pr-3">Trades</th>
+                                    <th class="text-center pb-2">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="trust-rankings-tbody">
+                                <tr><td colspan="7" class="text-center py-8 text-gray-500">Loading...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <script>
+        // ─── Reports Tab JS ──────────────────────────────────────────────────
+        const REPORT_API = 'http://' + location.hostname + ':8023';
+        let equityChart = null;
+
+        async function loadReports() {
+            try {
+                await Promise.all([
+                    loadAccountability(),
+                    loadStreak(),
+                    loadEquityCurve(30),
+                    loadDailyLog(),
+                    loadTrustRankings(),
+                ]);
+            } catch(e) {
+                console.warn('loadReports partial failure', e);
+            }
+        }
+
+        async function loadAccountability() {
+            try {
+                const r = await fetch(REPORT_API + '/accountability');
+                if (!r.ok) return;
+                const d = await r.json();
+                document.getElementById('kpi-win-rate').textContent =
+                    d.trades.win_rate_pct + '%';
+                document.getElementById('kpi-win-rate-sub').textContent =
+                    d.trades.total + ' closed trades';
+                document.getElementById('kpi-profitable-days').textContent =
+                    d.daily.profitable_days_pct + '%';
+                document.getElementById('kpi-signal-quality').textContent =
+                    d.signals.avg_quality_score || '—';
+                document.getElementById('kpi-fee-drag').textContent =
+                    d.trades.fee_drag_pct + '%';
+            } catch(e) {
+                console.warn('accountability load failed', e);
+            }
+        }
+
+        async function loadStreak() {
+            try {
+                const r = await fetch(REPORT_API + '/streak');
+                if (!r.ok) return;
+                const d = await r.json();
+                document.getElementById('streak-live-count').textContent = d.summary.live_count;
+                document.getElementById('streak-paper-count').textContent = d.summary.paper_count;
+                document.getElementById('streak-stopped-count').textContent = d.summary.stopped_count;
+                document.getElementById('streak-total-count').textContent = d.summary.total_symbols;
+            } catch(e) {
+                console.warn('streak load failed', e);
+            }
+        }
+
+        async function loadEquityCurve(days) {
+            // Update active range button
+            document.querySelectorAll('.equity-range-btn').forEach(b => {
+                b.classList.toggle('active-range', parseInt(b.dataset.days) === days);
+                b.classList.toggle('bg-blue-600', parseInt(b.dataset.days) === days);
+                b.classList.toggle('bg-gray-700', parseInt(b.dataset.days) !== days);
+            });
+            try {
+                const r = await fetch(REPORT_API + '/equity_curve?days=' + days);
+                if (!r.ok) return;
+                const d = await r.json();
+                renderEquityChart(d.points);
+            } catch(e) {
+                console.warn('equity_curve load failed', e);
+            }
+        }
+
+        function renderEquityChart(points) {
+            const canvas = document.getElementById('equity-curve-chart');
+            const empty = document.getElementById('equity-curve-empty');
+            if (!points || points.length === 0) {
+                if (empty) empty.style.display = 'flex';
+                return;
+            }
+            if (empty) empty.style.display = 'none';
+            const labels = points.map(p => p.time ? p.time.slice(0,10) : '');
+            const data = points.map(p => p.total_capital);
+            if (equityChart) equityChart.destroy();
+            equityChart = new Chart(canvas.getContext('2d'), {
+                type: 'line',
+                data: {
+                    labels,
+                    datasets: [{
+                        label: 'Portfolio Value ($)',
+                        data,
+                        borderColor: '#3b82f6',
+                        backgroundColor: 'rgba(59,130,246,0.08)',
+                        borderWidth: 2,
+                        pointRadius: points.length > 60 ? 0 : 3,
+                        fill: true,
+                        tension: 0.3,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { ticks: { color: '#9ca3af', maxTicksLimit: 8 }, grid: { color: '#1f2937' } },
+                        y: { ticks: { color: '#9ca3af' }, grid: { color: '#1f2937' } },
+                    },
+                }
+            });
+        }
+
+        async function loadDailyLog() {
+            const tbody = document.getElementById('daily-log-tbody');
+            try {
+                const r = await fetch(REPORT_API + '/daily_log?days=30');
+                if (!r.ok) { tbody.innerHTML = '<tr><td colspan="5" class="text-center py-4 text-gray-500">Unavailable</td></tr>'; return; }
+                const d = await r.json();
+                if (!d.entries.length) {
+                    tbody.innerHTML = '<tr><td colspan="5" class="text-center py-8 text-gray-500">No daily log data yet.</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = d.entries.map(e => {
+                    const pnlColor = e.total_pnl >= 0 ? 'text-green-400' : 'text-red-400';
+                    const pnlSign = e.total_pnl >= 0 ? '+' : '';
+                    const badge = e.is_profitable
+                        ? '<span class="px-2 py-0.5 rounded text-xs bg-green-900 text-green-300">✓ Profit</span>'
+                        : '<span class="px-2 py-0.5 rounded text-xs bg-red-900 text-red-300">✗ Loss</span>';
+                    const wr = e.win_rate !== null ? e.win_rate + '%' : '—';
+                    return `<tr class="border-b border-gray-700 hover:bg-gray-750">
+                        <td class="py-2 pr-3 text-gray-300">${e.date}</td>
+                        <td class="py-2 pr-3 text-right ${pnlColor} font-mono">${pnlSign}$${e.total_pnl.toFixed(2)}</td>
+                        <td class="py-2 pr-3 text-right text-gray-300">${e.trades_count}</td>
+                        <td class="py-2 pr-3 text-right text-gray-300">${wr}</td>
+                        <td class="py-2 text-center">${badge}</td>
+                    </tr>`;
+                }).join('');
+            } catch(e) {
+                tbody.innerHTML = '<tr><td colspan="5" class="text-center py-4 text-gray-500">Error loading data</td></tr>';
+            }
+        }
+
+        async function loadTrustRankings() {
+            const tbody = document.getElementById('trust-rankings-tbody');
+            const sym = document.getElementById('trust-symbol-filter').value.trim().toUpperCase();
+            const url = REPORT_API + '/trust_rankings?limit=20' + (sym ? '&symbol=' + encodeURIComponent(sym) : '');
+            try {
+                const r = await fetch(url);
+                if (!r.ok) { tbody.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-gray-500">Unavailable</td></tr>'; return; }
+                const d = await r.json();
+                if (!d.rankings.length) {
+                    tbody.innerHTML = '<tr><td colspan="7" class="text-center py-8 text-gray-500">No strategy rankings yet.</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = d.rankings.map(r => {
+                    const trustBar = Math.round(r.trust_factor * 100);
+                    const trustColor = trustBar >= 70 ? 'text-green-400' : trustBar >= 40 ? 'text-yellow-400' : 'text-red-400';
+                    const statusBadge = r.status === 'active'
+                        ? '<span class="px-2 py-0.5 rounded text-xs bg-green-900 text-green-300">active</span>'
+                        : '<span class="px-2 py-0.5 rounded text-xs bg-gray-700 text-gray-400">' + (r.status || '—') + '</span>';
+                    return `<tr class="border-b border-gray-700 hover:bg-gray-750">
+                        <td class="py-2 pr-3 text-blue-400 font-mono text-xs">${r.symbol}</td>
+                        <td class="py-2 pr-3 text-gray-200 text-xs max-w-xs truncate" title="${r.strategy_name}">${r.strategy_name}</td>
+                        <td class="py-2 pr-3 text-right ${trustColor} font-bold">${trustBar}%</td>
+                        <td class="py-2 pr-3 text-right text-gray-300">${r.profit_factor.toFixed(2)}</td>
+                        <td class="py-2 pr-3 text-right text-gray-300">${r.win_rate.toFixed(1)}%</td>
+                        <td class="py-2 pr-3 text-right text-gray-400">${r.total_trades}</td>
+                        <td class="py-2 text-center">${statusBadge}</td>
+                    </tr>`;
+                }).join('');
+            } catch(e) {
+                tbody.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-gray-500">Error loading data</td></tr>';
+            }
+        }
+
+        // Auto-load when tab is shown
+        document.addEventListener('DOMContentLoaded', () => {
+            // Hook into showTab to auto-load reports
+            const _origShowTab = window.showTab;
+            if (typeof _origShowTab === 'function') {
+                window.showTab = function(name) {
+                    _origShowTab(name);
+                    if (name === 'reports') loadReports();
+                };
+            }
+        });
+        </script>

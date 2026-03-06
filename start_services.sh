@@ -82,25 +82,31 @@ echo $! > logs/system_monitor_api.pid
 sleep 1
 
 # Start Ensemble API (Phase 8 Vision)
-echo "[12/12] Starting Ensemble API on port 8022..."
+echo "[12/13] Starting Ensemble API on port 8022..."
 nohup python services/ensemble_api/main.py > logs/ensemble_api.log 2>&1 &
 echo $! > logs/ensemble_api.pid
 sleep 1
 
+# Start Report API
+echo "[13/13] Starting Report API on port 8023..."
+nohup python services/report_api/main.py > logs/report_api.log 2>&1 &
+echo $! > logs/report_api.pid
+sleep 1
+
 # Start Celery Worker
-echo "[13/15] Starting Celery Worker..."
+echo "[14/16] Starting Celery Worker..."
 nohup celery -A celery_worker.tasks worker --loglevel=info > logs/celery_worker.log 2>&1 &
 echo $! > logs/celery_worker.pid
 sleep 2
 
 # Start Celery Beat
-echo "[14/15] Starting Celery Beat Scheduler..."
+echo "[15/16] Starting Celery Beat Scheduler..."
 nohup celery -A celery_worker.tasks beat --loglevel=info > logs/celery_beat.log 2>&1 &
 echo $! > logs/celery_beat.pid
 sleep 2
 
 # Start UI
-echo "[15/15] Starting Web UI on port 8010..."
+echo "[16/16] Starting Web UI on port 8010..."
 (cd ui && nohup /opt/trading/venv/bin/python server.py > ../logs/ui.log 2>&1 & echo $! > /opt/trading/logs/ui.pid)
 
 echo ""
@@ -135,6 +141,7 @@ check_service "Testing API  " 8019
 check_service "Strategy Cfg " 8020
 check_service "Sys Monitor  " 8021
 check_service "Ensemble API " 8022
+check_service "Report API   " 8023
 check_service "Web UI       " 8010
 
 echo ""

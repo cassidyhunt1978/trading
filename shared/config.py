@@ -54,6 +54,7 @@ class Settings(BaseSettings):
     port_strategy_config_api: int = 8020
     port_system_monitor_api: int = 8021
     port_ensemble_api: int = 8022  # Phase 8: Vision ensemble engine
+    port_report_api: int = 8023  # Accountability & proof dashboard
     
     class Config:
         env_file = '.env'

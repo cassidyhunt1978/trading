@@ -4580,6 +4580,76 @@ def monitor_profitability():
         return {"status": "error", "message": str(e)}
 
 
+@celery_app.task(name='generate_daily_report')
+def generate_daily_report():
+    """
+    Nightly accountability snapshot: aggregates daily P&L, signal quality,
+    and mode-streak data and writes a summary row to daily_profitability_log
+    for any symbols that were active but have no entry yet for yesterday.
+    Runs at 3:00 AM UTC (after midnight stats reset at 7 AM UTC = midnight MST).
+    """
+    from datetime import date, timedelta
+    import httpx
+
+    yesterday = date.today() - timedelta(days=1)
+    logger.info("task_started", task="generate_daily_report", date=str(yesterday))
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                # Find symbols with mode config but no profitability log entry for yesterday
+                cur.execute("""
+                    SELECT tmc.symbol
+                    FROM trading_mode_config tmc
+                    WHERE tmc.trading_mode IN ('paper', 'live')
+                      AND NOT EXISTS (
+                          SELECT 1 FROM daily_profitability_log dpl
+                          WHERE dpl.symbol = tmc.symbol
+                            AND dpl.log_date = %s
+                      )
+                """, (yesterday,))
+                missing_symbols = [r[0] for r in cur.fetchall()]
+
+                inserted = 0
+                for symbol in missing_symbols:
+                    # Compute from positions closed that day
+                    cur.execute("""
+                        SELECT
+                            COUNT(*) AS trades,
+                            SUM(CASE WHEN realized_pnl > 0 THEN 1 ELSE 0 END) AS wins,
+                            COALESCE(SUM(realized_pnl), 0) AS pnl
+                        FROM positions
+                        WHERE symbol = %s
+                          AND status = 'closed'
+                          AND DATE(closed_at) = %s
+                    """, (symbol, yesterday))
+                    row = cur.fetchone()
+                    trades = row[0] or 0
+                    wins = row[1] or 0
+                    pnl = float(row[2]) if row[2] else 0.0
+
+                    cur.execute("""
+                        INSERT INTO daily_profitability_log
+                            (symbol, log_date, total_pnl, is_profitable, trades_count, winning_trades)
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (symbol, log_date) DO NOTHING
+                    """, (symbol, yesterday, pnl, pnl > 0, trades, wins))
+                    inserted += 1
+
+                conn.commit()
+
+        logger.info("generate_daily_report_complete",
+                    date=str(yesterday),
+                    symbols_backfilled=inserted)
+        return {
+            "status": "ok",
+            "date": str(yesterday),
+            "symbols_backfilled": inserted,
+        }
+    except Exception as e:
+        logger.error("task_error", task="generate_daily_report", error=str(e))
+        return {"status": "error", "message": str(e)}
+
+
 @celery_app.task(name='reevaluate_strategies')
 def reevaluate_strategies():
     """
@@ -4845,6 +4915,12 @@ celery_app.conf.beat_schedule = {
     'monitor-profitability': {
         'task': 'monitor_profitability',
         'schedule': crontab(hour=2, minute=30),
+    },
+
+    # Generate nightly accountability report at 3:00 AM UTC
+    'generate-daily-report': {
+        'task': 'generate_daily_report',
+        'schedule': crontab(hour=3, minute=0),
     },
 }
 
