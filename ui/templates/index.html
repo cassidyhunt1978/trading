@@ -305,7 +305,11 @@
         // Show Chart Modal
         async function showChart(symbol) {
             window.currentSymbol = symbol;
-            
+            window.open(`http://${window.API_HOST}/charts/?symbol=${encodeURIComponent(symbol)}`, '_blank');
+        }
+
+        // Legacy chart modal (kept for reference, no longer used)
+        async function _showChartLegacy(symbol) {
             const content = `
                 <div class="mb-4">
                     <select id="signal-jump" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm">
