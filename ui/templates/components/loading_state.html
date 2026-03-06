@@ -1,0 +1,20 @@
+{# Reusable Loading State Component
+   Usage: {% include 'components/loading_state.html' with context %}
+   Context variables:
+   - message: Loading message (optional, defaults to 'Loading...')
+   - icon: Icon emoji (optional, defaults to '⏳')
+   - colspan: Table colspan if used in table (optional)
+#}
+{% if colspan %}
+<tr>
+    <td colspan="{{ colspan }}" class="text-center py-10 text-gray-500">
+        <div class="text-4xl mb-4">{{ icon|default('⏳', true) }}</div>
+        <div>{{ message|default('Loading...', true) }}</div>
+    </td>
+</tr>
+{% else %}
+<div class="col-span-full text-center py-20 text-gray-500">
+    <div class="text-4xl mb-4">{{ icon|default('⏳', true) }}</div>
+    <div>{{ message|default('Loading...', true) }}</div>
+</div>
+{% endif %}

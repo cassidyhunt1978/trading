@@ -1,0 +1,74 @@
+{# Reusable Component Macros #}
+
+{# Stat Card Component #}
+{% macro stat_card(label, value_id, value='-', color='') %}
+<div class="bg-gray-800 p-4 rounded-lg">
+    <div class="text-gray-400 text-sm mb-1">{{ label }}</div>
+    <div class="text-2xl font-bold {{ color }}" id="{{ value_id }}">{{ value }}</div>
+</div>
+{% endmacro %}
+
+{# Tab Header Component #}
+{% macro tab_header(title) %}
+<div class="flex justify-between items-center mb-4">
+    <h2 class="text-2xl font-bold">{{ title }}</h2>
+    <div class="flex gap-2">
+        {{ caller() }}
+    </div>
+</div>
+{% endmacro %}
+
+{# Action Button Component #}
+{% macro action_button(text, onclick, classes='bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg font-semibold') %}
+<button onclick="{{ onclick }}" class="{{ classes }}">{{ text }}</button>
+{% endmacro %}
+
+{# Loading State Component #}
+{% macro loading_state(message='Loading...', icon='⏳', colspan=none) %}
+{% if colspan %}
+<tr>
+    <td colspan="{{ colspan }}" class="text-center py-10 text-gray-500">
+        <div class="text-4xl mb-4">{{ icon }}</div>
+        <div>{{ message }}</div>
+    </td>
+</tr>
+{% else %}
+<div class="col-span-full text-center py-20 text-gray-500">
+    <div class="text-4xl mb-4">{{ icon }}</div>
+    <div>{{ message }}</div>
+</div>
+{% endif %}
+{% endmacro %}
+
+{# Filter Button Component #}
+{% macro filter_button(id, label, onclick, active=false) %}
+<button 
+    onclick="{{ onclick }}" 
+    id="{{ id }}"
+    class="px-4 py-2 rounded {% if active %}bg-blue-600 text-white font-semibold{% else %}bg-gray-700 hover:bg-gray-600{% endif %}">
+    {{ label }}
+</button>
+{% endmacro %}
+
+{# Table Wrapper Component #}
+{% macro table_wrapper(id='') %}
+<div class="bg-gray-800 rounded-lg p-4">
+    <table class="w-full">
+        {{ caller() }}
+    </table>
+</div>
+{% endmacro %}
+
+{# Card Component - Flexible container #}
+{% macro card(classes='bg-gray-800 p-6 rounded-lg') %}
+<div class="{{ classes }}">
+    {{ caller() }}
+</div>
+{% endmacro %}
+
+{# Gradient Card - For special sections #}
+{% macro gradient_card(from_color='purple-900', to_color='purple-800', border_color='purple-500') %}
+<div class="bg-gradient-to-br from-{{ from_color }} to-{{ to_color }} rounded-lg p-6 mb-6 border-2 border-{{ border_color }}">
+    {{ caller() }}
+</div>
+{% endmacro %}

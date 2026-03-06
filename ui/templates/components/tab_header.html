@@ -1,0 +1,21 @@
+{# Reusable Tab Header Component
+   Usage: {% include 'components/tab_header.html' with context %}
+   Context variables:
+   - title: Header title text
+   - buttons: Array of button definitions (optional)
+     Each button: {text, onclick, classes}
+#}
+<div class="flex justify-between items-center mb-4">
+    <h2 class="text-2xl font-bold">{{ title }}</h2>
+    {% if buttons %}
+    <div class="flex gap-2">
+        {% for button in buttons %}
+        <button 
+            onclick="{{ button.onclick }}" 
+            class="{{ button.classes|default('bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg font-semibold', true) }}">
+            {{ button.text }}
+        </button>
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>

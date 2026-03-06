@@ -1,0 +1,114 @@
+<!-- Signal Tier Allocation Reference Modal -->
+<div data-modal="signal-tiers" class="modal-overlay">
+    <div class="modal-content p-6 max-w-2xl">
+        <div class="flex justify-between items-center mb-4">
+            <h3 class="text-xl font-bold">📊 Signal Allocation Tiers</h3>
+            <button onclick="closeModal('signal-tiers')" class="text-gray-400 hover:text-white text-2xl">&times;</button>
+        </div>
+        
+        <div class="space-y-3">
+            <p class="text-gray-400 text-sm mb-4">
+                Capital allocation is dynamically adjusted based on signal strength (weighted score) to maximize returns on high-conviction opportunities.
+            </p>
+            
+            <!-- Tier Cards -->
+            <div class="bg-gray-800 border-l-4 border-yellow-500 p-4 rounded">
+                <div class="flex justify-between items-start">
+                    <div>
+                        <div class="text-yellow-400 font-semibold">QUALIFIED (70-79)</div>
+                        <div class="text-sm text-gray-400 mt-1">Base allocation - standard opportunity</div>
+                    </div>
+                    <div class="text-right">
+                        <div class="text-2xl font-bold text-yellow-400">10%</div>
+                        <div class="text-xs text-gray-500">of capital</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="bg-gray-800 border-l-4 border-blue-500 p-4 rounded">
+                <div class="flex justify-between items-start">
+                    <div>
+                        <div class="text-blue-400 font-semibold">HIGH CONFIDENCE (80-89)</div>
+                        <div class="text-sm text-gray-400 mt-1">Strong signal - above average</div>
+                    </div>
+                    <div class="text-right">
+                        <div class="text-2xl font-bold text-blue-400">20%</div>
+                        <div class="text-xs text-gray-500">of capital</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="bg-gray-800 border-l-4 border-green-500 p-4 rounded">
+                <div class="flex justify-between items-start">
+                    <div>
+                        <div class="text-green-400 font-semibold">VERY HIGH CONFIDENCE (90-99)</div>
+                        <div class="text-sm text-gray-400 mt-1">Very strong signal - rare occurrence</div>
+                    </div>
+                    <div class="text-right">
+                        <div class="text-2xl font-bold text-green-400">30%</div>
+                        <div class="text-xs text-gray-500">of capital</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="bg-gray-900 border-l-4 border-orange-500 p-4 rounded shadow-lg">
+                <div class="flex justify-between items-start">
+                    <div>
+                        <div class="text-orange-400 font-bold flex items-center gap-2">
+                            <span>⚡</span>
+                            <span>EXCEPTIONAL (100-109)</span>
+                        </div>
+                        <div class="text-sm text-gray-400 mt-1">Extremely rare - high conviction</div>
+                    </div>
+                    <div class="text-right">
+                        <div class="text-3xl font-bold text-orange-400">40%</div>
+                        <div class="text-xs text-gray-500">of capital</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="bg-gray-900 border-l-4 border-red-500 p-4 rounded shadow-xl animate-pulse">
+                <div class="flex justify-between items-start">
+                    <div>
+                        <div class="text-red-400 font-bold flex items-center gap-2">
+                            <span>🚨</span>
+                            <span>EXTRAORDINARY (110+)</span>
+                        </div>
+                        <div class="text-sm text-gray-400 mt-1">Once-in-a-lifetime opportunity - maximum allocation</div>
+                    </div>
+                    <div class="text-right">
+                        <div class="text-4xl font-bold text-red-400">50%</div>
+                        <div class="text-xs text-gray-500">of capital</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Additional Multipliers -->
+            <div class="mt-6 pt-4 border-t border-gray-700">
+                <h4 class="text-sm font-semibold text-gray-300 mb-3">🎯 Position Multipliers</h4>
+                <ul class="space-y-2 text-sm text-gray-400">
+                    <li class="flex items-center gap-2">
+                        <span class="text-purple-400">+20%</span>
+                        <span>High Consensus (3+ strategies agree)</span>
+                    </li>
+                    <li class="flex items-center gap-2">
+                        <span class="text-cyan-400">+10%</span>
+                        <span>Short Timeframe (&lt;2 hours - quick capitalize)</span>
+                    </li>
+                    <li class="flex items-center gap-2">
+                        <span class="text-yellow-600">-50%</span>
+                        <span>Bootstrap Mode (no performance history)</span>
+                    </li>
+                </ul>
+            </div>
+            
+            <!-- Risk Note -->
+            <div class="mt-4 p-3 bg-yellow-900/20 border border-yellow-800 rounded">
+                <p class="text-xs text-yellow-400">
+                    ⚠️ <strong>Note:</strong> Large allocations (30%+) are subject to max position size limits and available capital constraints. 
+                    Exceptional signals (100+) will trigger enhanced logging and monitoring.
+                </p>
+            </div>
+        </div>
+    </div>
+</div>

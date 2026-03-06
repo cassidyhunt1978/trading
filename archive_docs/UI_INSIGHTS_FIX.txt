@@ -1,0 +1,80 @@
+AfterAction UI Fix - Reports Not Displaying
+===========================================
+
+ISSUE:
+------
+UI showed "Total Reports: 2" but no insights were displaying in the 
+"Recent Insights" section.
+
+ROOT CAUSE:
+-----------
+JavaScript bug - the code was checking:
+  if (reports && reports.length > 0)
+
+But `reports` was the full API response:
+  { status: "success", count: 2, reports: [...] }
+
+So `reports.length` was undefined (objects don't have .length),
+causing the condition to fail and showing "No analysis reports yet"
+even though reports existed.
+
+FIX APPLIED:
+------------
+Changed the code to properly extract the reports array:
+
+  const reportsData = await reportsResponse.json();
+  const reports = reportsData.reports || [];
+  
+Now it correctly accesses the 'reports' property of the response object.
+
+BONUS ENHANCEMENT:
+------------------
+Added display of the top recommendation from each report:
+  💡 Low win rate detected
+  
+This shows the most important recommendation beneath each insight card.
+
+WHAT YOU'LL SEE NOW:
+--------------------
+After refreshing your browser, the System tab AfterAction section will show:
+
+Total Reports: 2
+Win Rate: 0%
+Missed: 0
+False Signals: 0
+
+Recent Insights:
+┌──────────────────────────────────────┐
+│ 2/17/2026          0% Win Rate       │
+│ 0 trades analyzed  0 missed  0 false │
+│ 💡 Low win rate detected             │
+└──────────────────────────────────────┘
+┌──────────────────────────────────────┐
+│ 2/17/2026          0% Win Rate       │
+│ 0 trades analyzed  0 missed  0 false │
+│ 💡 Low win rate detected             │
+└──────────────────────────────────────┘
+
+TO TEST:
+--------
+1. Refresh your browser (hard refresh: Ctrl+Shift+R or Cmd+Shift+R)
+2. Go to System tab
+3. Scroll to "📊 AfterAction Analysis"
+4. You should now see 2 insight cards with recommendations
+
+WHY IT SHOWS 0 TRADES:
+----------------------
+The system hasn't executed any paper trades in the last 24 hours yet.
+Once paper trades start happening, you'll see real statistics:
+- Actual win rates
+- Missed opportunity counts
+- False signal counts
+- More specific recommendations
+
+FILES MODIFIED:
+---------------
+/opt/trading/ui/index.html (lines 2403-2447)
+- Fixed reports array extraction
+- Added recommendation display to insights
+
+STATUS: ✅ FIXED

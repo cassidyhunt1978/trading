@@ -1,0 +1,234 @@
+        <!-- Ensemble Backtest Modal -->
+        <div id="ensemble-backtest-modal" class="modal-overlay">
+            <div class="modal-content p-6 max-w-5xl">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-xl font-bold">📊 Ensemble Backtest</h3>
+                    <button onclick="closeEnsembleBacktestModal()" class="text-gray-400 hover:text-white text-2xl">&times;</button>
+                </div>
+                
+                <form id="ensemble-backtest-form" class="space-y-4">
+                    <!-- Symbol Selection -->
+                    <div>
+                        <label class="block text-sm font-semibold mb-1">Symbol</label>
+                        <select id="eb-symbol" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2" required>
+                            <option value="">Loading symbols...</option>
+                        </select>
+                    </div>
+
+                    <!-- Date Range -->
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-semibold mb-1">Start Date</label>
+                            <input type="date" id="eb-start-date" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2" required>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold mb-1">End Date</label>
+                            <input type="date" id="eb-end-date" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2" required>
+                        </div>
+                    </div>
+
+                    <!-- Ensemble Parameters -->
+                    <div class="border-t border-gray-700 pt-4">
+                        <h4 class="font-semibold text-purple-400 mb-3">Ensemble Parameters</h4>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs text-gray-400 mb-1">Min Weighted Score</label>
+                                <input type="number" id="eb-min-score" value="70" min="50" max="150" step="5" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2">
+                            </div>
+                            <div>
+                                <label class="block text-xs text-gray-400 mb-1">Lookback Days</label>
+                                <select id="eb-lookback" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2">
+                                    <option value="7">7 Days</option>
+                                    <option value="14" selected>14 Days</option>
+                                    <option value="30">30 Days</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs text-gray-400 mb-1">Signal Cluster Window (minutes)</label>
+                                <input type="number" id="eb-cluster-window" value="5" min="1" max="30" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2">
+                            </div>
+                            <div>
+                                <label class="block text-xs text-gray-400 mb-1">Initial Capital ($)</label>
+                                <input type="number" id="eb-capital" value="1000" min="100" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Trading Parameters -->
+                    <div class="border-t border-gray-700 pt-4">
+                        <h4 class="font-semibold text-blue-400 mb-3">Trading Parameters</h4>
+                        <div class="grid grid-cols-3 gap-4">
+                            <div>
+                                <label class="block text-xs text-gray-400 mb-1">Position Size (%)</label>
+                                <input type="number" id="eb-position-size" value="10" min="1" max="100" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2">
+                            </div>
+                            <div>
+                                <label class="block text-xs text-gray-400 mb-1">Stop Loss (%)</label>
+                                <input type="number" id="eb-stop-loss" value="3" min="0" max="20" step="0.5" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2">
+                            </div>
+                            <div>
+                                <label class="block text-xs text-gray-400 mb-1">Take Profit (%)</label>
+                                <input type="number" id="eb-take-profit" value="9" min="0" max="50" step="0.5" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Action Buttons -->
+                    <div class="flex gap-3 pt-4">
+                        <button type="submit" class="flex-1 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 py-2 rounded-lg font-semibold">
+                            🚀 Run Backtest
+                        </button>
+                        <button type="button" onclick="optimizeEnsembleParameters()" class="flex-1 bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 py-2 rounded-lg font-semibold">
+                            🔧 Optimize Parameters
+                        </button>
+                        <button type="button" onclick="runFullOptimizationNow()" class="flex-1 bg-gradient-to-r from-orange-600 to-orange-700 hover:from-orange-700 hover:to-orange-800 py-2 rounded-lg font-semibold">
+                            ⚡ Run Now (All)
+                        </button>
+                        <button type="button" onclick="showOptimizationStatus()" class="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 py-2 px-6 rounded-lg font-semibold">
+                            📊 Status
+                        </button>
+                        <button type="button" onclick="closeEnsembleBacktestModal()" class="bg-gray-700 hover:bg-gray-600 py-2 px-4 rounded-lg font-semibold">
+                            Cancel
+                        </button>
+                    </div>
+
+                    <!-- Progress Indicator -->
+                    <div id="eb-progress" class="hidden mt-4 p-4 bg-blue-900 bg-opacity-30 rounded-lg border border-blue-600">
+                        <div class="flex items-center gap-3">
+                            <div class="animate-spin text-2xl">⏳</div>
+                            <div>
+                                <div class="font-semibold text-blue-400">Running Ensemble Backtest...</div>
+                                <div class="text-sm text-gray-400">This may take 30-60 seconds</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Full Optimization Progress -->
+                    <div id="eb-full-optimize-progress" class="hidden mt-4 p-4 bg-orange-900 bg-opacity-30 rounded-lg border border-orange-600">
+                        <div class="flex items-center gap-3">
+                            <div class="animate-spin text-2xl">⚡</div>
+                            <div class="flex-1">
+                                <div class="font-semibold text-orange-400">Running Full Optimization on All Symbols...</div>
+                                <div class="text-sm text-gray-400">This will take 30-45 minutes. You can close this and check status later.</div>
+                                <div id="eb-full-optimize-task-id" class="text-xs text-gray-500 mt-1"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Optimization Progress -->
+                    <div id="eb-optimize-progress" class="hidden mt-4 p-4 bg-purple-900 bg-opacity-30 rounded-lg border border-purple-600">
+                        <div class="flex items-center gap-3">
+                            <div class="animate-spin text-2xl">🔧</div>
+                            <div class="flex-1">
+                                <div class="font-semibold text-purple-400">Optimizing Parameters...</div>
+                                <div class="text-sm text-gray-400" id="eb-optimize-status">Testing parameter combinations</div>
+                                <div class="mt-2 bg-gray-800 rounded-full h-2 overflow-hidden">
+                                    <div id="eb-optimize-bar" class="bg-purple-500 h-full transition-all duration-300" style="width: 0%"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </form>
+
+                <!-- Optimization Results -->
+                <div id="eb-optimize-results" class="hidden mt-4 border-t border-gray-700 pt-4">
+                    <h4 class="font-semibold text-lg mb-3">🔧 Optimization Results</h4>
+                    <p class="text-sm text-gray-400 mb-4">Top parameter combinations ranked by Sharpe ratio, then total return:</p>
+                    
+                    <div id="eb-optimize-top-results" class="space-y-2 mb-4">
+                        <!-- Populated by optimization -->
+                    </div>
+                    
+                    <div class="flex gap-3">
+                        <button onclick="applyOptimizedParameters()" class="bg-green-600 hover:bg-green-700 px-6 py-2 rounded-lg font-semibold">
+                            ✅ Apply Best Parameters
+                        </button>
+                        <button onclick="closeOptimizationResults()" class="bg-gray-700 hover:bg-gray-600 px-6 py-2 rounded-lg font-semibold">
+                            Close
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Optimization Status Display -->
+                <div id="eb-optimization-status" class="hidden mt-4 border-t border-gray-700 pt-4">
+                    <div class="flex items-center justify-between mb-3">
+                        <h4 class="font-semibold text-lg">📊 Last Optimization Run</h4>
+                        <button onclick="refreshOptimizationStatus()" class="text-sm text-blue-400 hover:text-blue-300">
+                            🔄 Refresh
+                        </button>
+                    </div>
+                    
+                    <div id="eb-status-content" class="space-y-3">
+                        <!-- Populated dynamically -->
+                    </div>
+                </div>
+
+                <!-- Results Section -->
+                <div id="eb-results" class="hidden mt-4 border-t border-gray-700 pt-4">
+                    <h4 class="font-semibold text-lg mb-3">📈 Backtest Results</h4>
+                    
+                    <!-- Metrics Cards -->
+                    <div class="grid grid-cols-5 gap-3 mb-4">
+                        <div class="bg-gradient-to-br from-green-900 to-green-800 rounded p-3 text-center">
+                            <div class="text-xs text-green-200 mb-1">Total Return</div>
+                            <div class="text-xl font-bold" id="eb-result-return">-</div>
+                        </div>
+                        <div class="bg-gradient-to-br from-blue-900 to-blue-800 rounded p-3 text-center">
+                            <div class="text-xs text-blue-200 mb-1">Win Rate</div>
+                            <div class="text-xl font-bold" id="eb-result-winrate">-</div>
+                        </div>
+                        <div class="bg-gradient-to-br from-purple-900 to-purple-800 rounded p-3 text-center">
+                            <div class="text-xs text-purple-200 mb-1">Trades</div>
+                            <div class="text-xl font-bold" id="eb-result-trades">-</div>
+                        </div>
+                        <div class="bg-gradient-to-br from-yellow-900 to-yellow-800 rounded p-3 text-center">
+                            <div class="text-xs text-yellow-200 mb-1">Sharpe</div>
+                            <div class="text-xl font-bold" id="eb-result-sharpe">-</div>
+                        </div>
+                        <div class="bg-gradient-to-br from-red-900 to-red-800 rounded p-3 text-center">
+                            <div class="text-xs text-red-200 mb-1">Max DD</div>
+                            <div class="text-xl font-bold" id="eb-result-drawdown">-</div>
+                        </div>
+                    </div>
+
+                    <!-- Additional Stats -->
+                    <div class="grid grid-cols-3 gap-3 mb-4">
+                        <div class="bg-gray-800 rounded p-3">
+                            <div class="text-xs text-gray-400 mb-1">Buy & Hold</div>
+                            <div class="text-lg font-semibold" id="eb-result-buyhold">-</div>
+                        </div>
+                        <div class="bg-gray-800 rounded p-3">
+                            <div class="text-xs text-gray-400 mb-1">Signals Used</div>
+                            <div class="text-lg font-semibold" id="eb-result-signals">-</div>
+                        </div>
+                        <div class="bg-gray-800 rounded p-3">
+                            <div class="text-xs text-gray-400 mb-1">Strategies Used</div>
+                            <div class="text-lg font-semibold" id="eb-result-strategies">-</div>
+                        </div>
+                    </div>
+
+                    <!-- Trade Log -->
+                    <div class="bg-gray-800 rounded p-4">
+                        <h5 class="font-semibold mb-2">Recent Trades (Last 10)</h5>
+                        <div class="overflow-x-auto max-h-64 overflow-y-auto">
+                            <table class="w-full text-sm">
+                                <thead class="bg-gray-900 sticky top-0">
+                                    <tr>
+                                        <th class="text-left py-2 px-2">Entry Time</th>
+                                        <th class="text-left py-2 px-2">Exit Time</th>
+                                        <th class="text-center py-2 px-2">Side</th>
+                                        <th class="text-right py-2 px-2">Entry</th>
+                                        <th class="text-right py-2 px-2">Exit</th>
+                                        <th class="text-right py-2 px-2">PnL%</th>
+                                        <th class="text-left py-2 px-2">Reason</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="eb-result-trades-table">
+                                    <tr><td colspan="7" class="text-center py-4 text-gray-400">No trades</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>

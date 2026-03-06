@@ -1,0 +1,221 @@
+<!-- Enhanced P&L Card Component -->
+<div class="bg-gradient-to-br from-gray-800 to-gray-900 rounded-lg p-6 border border-gray-700 shadow-xl">
+    <!-- Header with Mode Switcher -->
+    <div class="flex justify-between items-center mb-4">
+        <h3 class="text-2xl font-bold">💰 P&L Overview</h3>
+        <div class="flex gap-2">
+            <button 
+                onclick="switchPnlMode('paper')" 
+                id="pnl-mode-paper" 
+                class="px-4 py-2 rounded-lg font-semibold transition-all bg-blue-600 text-white shadow-lg">
+                📄 Paper
+            </button>
+            <button 
+                onclick="switchPnlMode('live')" 
+                id="pnl-mode-live" 
+                class="px-4 py-2 rounded-lg font-semibold transition-all bg-gray-700 hover:bg-gray-600 text-gray-300">
+                🔴 Live
+            </button>
+        </div>
+    </div>
+    
+    <div class="flex justify-between items-center mb-4">
+        <div class="text-sm text-gray-400" id="pnl-mode-label">Paper Trading Mode</div>
+        <div class="text-xs text-gray-500" id="pnl-timezone-info" title="Trading day runs from midnight to midnight in your local time">Local Time</div>
+    </div>
+    
+    <!-- Portfolio Value - Featured (True Account Value) -->
+    <div class="bg-gradient-to-r from-blue-950 to-gray-900 rounded-lg p-4 border-2 border-blue-500 mb-3">
+        <div class="flex justify-between items-center mb-1">
+            <div class="text-xs text-gray-400">Total Account Value</div>
+            <div class="text-xs text-gray-500" id="pnl-starting-capital">Started: $10,000</div>
+        </div>
+        <div class="text-3xl font-bold text-blue-400 mb-1" id="pnl-portfolio-value">$0.00</div>
+        <div class="text-xs" id="pnl-portfolio-change">-</div>
+    </div>
+    
+    <!-- Account Balance Section -->
+    <div class="grid grid-cols-2 gap-3 mb-6">
+        <!-- Total Capital -->
+        <div class="bg-gray-900 rounded-lg p-3 border border-gray-700">
+            <div class="text-xs text-gray-500 mb-1">Total Capital</div>
+            <div class="text-xl font-bold text-white mb-1" id="pnl-total-capital">$0.00</div>
+            <div class="text-xs text-gray-400" id="pnl-capital-source">-</div>
+        </div>
+        
+        <!-- Available Cash -->
+        <div class="bg-gray-900 rounded-lg p-3 border border-gray-700">
+            <div class="text-xs text-gray-500 mb-1">Available Cash</div>
+            <div class="text-xl font-bold text-green-400 mb-1" id="pnl-available-capital">$0.00</div>
+            <div class="text-xs text-gray-400" id="pnl-available-pct">-</div>
+        </div>
+    </div>
+    
+    <!-- P&L Metrics Grid -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-6">
+        <!-- Open Positions -->
+        <div class="bg-gray-900 rounded-lg p-3 border border-gray-700 flex flex-col min-h-[80px]">
+            <div class="text-xs text-gray-500 mb-1 whitespace-nowrap">Open Positions</div>
+            <div class="text-xl font-bold text-blue-400" id="pnl-open-positions">0</div>
+            <div class="text-xs text-gray-400 mt-auto" id="pnl-deployed-capital">$0.00 invested</div>
+        </div>
+        
+        <!-- Unrealized P&L -->
+        <div class="bg-gray-900 rounded-lg p-3 border border-gray-700 flex flex-col min-h-[80px]">
+            <div class="text-xs text-gray-500 mb-1 whitespace-nowrap">Unrealized P&L</div>
+            <div class="text-lg font-bold" id="pnl-unrealized">$0.00</div>
+            <div class="text-xs mt-auto" id="pnl-unrealized-pct">0.00%</div>
+        </div>
+        
+        <!-- Today's P&L -->
+        <div class="bg-gray-900 rounded-lg p-3 border border-gray-700 flex flex-col min-h-[80px]">
+            <div class="text-xs text-gray-500 mb-1 whitespace-nowrap" title="Positions closed today + unrealized from open positions">Today's P&L</div>
+            <div class="text-lg font-bold" id="pnl-daily">$0.00</div>
+            <div class="text-xs mt-auto" id="pnl-daily-pct">0.00%</div>
+        </div>
+    </div>
+    
+    <!-- Performance Metrics -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-6">
+        <!-- Total P&L -->
+        <div class="bg-gray-900 rounded-lg p-3 border border-gray-700 flex flex-col min-h-[80px]">
+            <div class="text-xs text-gray-500 mb-1 whitespace-nowrap">Total P&L</div>
+            <div class="text-lg font-bold" id="pnl-total">$0.00</div>
+            <div class="text-xs mt-auto" id="pnl-total-pct">0.00%</div>
+        </div>
+        
+        <!-- Win Rate -->
+        <div class="bg-gray-900 rounded-lg p-3 border border-gray-700 flex flex-col min-h-[80px]">
+            <div class="text-xs text-gray-500 mb-1 whitespace-nowrap" title="Win rate for positions closed today (after fees)">Today's Win Rate</div>
+            <div class="text-lg font-bold" id="pnl-win-rate">0%</div>
+            <div class="text-xs text-gray-400 mt-auto" id="pnl-win-ratio">0W/0L</div>
+        </div>
+        
+        <!-- Average Trade -->
+        <div class="bg-gray-900 rounded-lg p-3 border border-gray-700 flex flex-col min-h-[80px]">
+            <div class="text-xs text-gray-500 mb-1 whitespace-nowrap" title="Average P&L per closed position today (after fees)">Avg Trade Today</div>
+            <div class="text-base font-bold" id="pnl-avg-trade">$0.00</div>
+            <div class="text-xs text-gray-400 mt-auto" id="pnl-trades-today">0 closed today</div>
+        </div>
+    </div>
+    
+    <!-- System Activity Section -->
+    <div class="bg-gradient-to-br from-gray-900 to-gray-800 rounded-lg p-3 border border-green-700 mb-4">
+        <div class="flex justify-between items-center mb-2">
+            <div class="text-xs font-semibold text-green-400">⚡ System Activity</div>
+            <div id="system-activity-status" class="text-xs text-gray-500">●</div>
+        </div>
+        <div class="grid grid-cols-2 gap-2 text-xs">
+            <div>
+                <div class="text-gray-500">Last Candles</div>
+                <div class="text-white font-semibold" id="activity-last-candles">-</div>
+            </div>
+            <div>
+                <div class="text-gray-500">Last Signal</div>
+                <div class="text-white font-semibold" id="activity-last-signal">-</div>
+            </div>
+            <div>
+                <div class="text-gray-500">Active Signals</div>
+                <div class="text-green-400 font-semibold" id="activity-active-signals">-</div>
+            </div>
+            <div>
+                <div class="text-gray-500">Trades Today</div>
+                <div class="text-blue-400 font-semibold" id="activity-trades-today">
+                    <span id="activity-ensemble-trades" class="text-purple-400">-</span>E / 
+                    <span id="activity-strategy-trades" class="text-gray-400">-</span>S
+                </div>
+            </div>
+            <div>
+                <div class="text-gray-500">Last Trade</div>
+                <div class="text-white font-semibold" id="activity-last-trade">-</div>
+            </div>
+            <div>
+                <div class="text-gray-500">Workers</div>
+                <div class="text-white font-semibold" id="activity-workers">-</div>
+            </div>
+        </div>
+    </div>
+
+    
+    <!-- Open Positions Section -->
+    <div id="pnl-open-positions-section" class="mb-4">
+        <div class="flex justify-between items-center mb-2">
+            <h4 class="text-sm font-semibold text-gray-400">📌 Current Positions</h4>
+            <span id="pnl-positions-count" class="text-xs text-gray-500">0 open</span>
+        </div>
+        <div id="pnl-positions-list" class="space-y-2 max-h-48 overflow-y-auto">
+            <!-- Populated dynamically -->
+            <div class="text-center text-gray-500 text-xs py-4">No open positions</div>
+        </div>
+    </div>
+    
+    <!-- Real-Time Signal Evaluations -->
+    <div id="pnl-evaluations-section" class="mb-4 bg-gray-900 rounded-lg p-3 border border-purple-700">
+        <div class="flex justify-between items-center mb-2">
+            <h4 class="text-sm font-semibold text-purple-400">🔍 Recent Signal Evaluations</h4>
+            <span id="pnl-evaluations-count" class="text-xs text-gray-500">-</span>
+        </div>
+        <div id="pnl-evaluations-list" class="space-y-2 max-h-60 overflow-y-auto">
+            <!-- Populated dynamically -->
+            <div class="text-center text-gray-500 text-xs py-4">Loading evaluations...</div>
+        </div>
+    </div>
+    
+    <!-- Symbol Blacklist Status -->
+    <div id="pnl-blacklist-section" class="mb-4 bg-gray-900 rounded-lg p-3 border border-orange-700">
+        <div class="flex justify-between items-center mb-2">
+            <h4 class="text-sm font-semibold text-orange-400">🚫 Symbol Blacklist</h4>
+            <span id="pnl-blacklist-count" class="text-xs text-gray-500">-</span>
+        </div>
+        <div id="pnl-blacklist-list" class="space-y-2 max-h-48 overflow-y-auto">
+            <!-- Populated dynamically -->
+            <div class="text-center text-gray-500 text-xs py-4">Loading blacklist data...</div>
+        </div>
+        <div class="mt-2 pt-2 border-t border-gray-800 text-xs text-gray-400">
+            <div class="flex items-start gap-1">
+                <span>ℹ️</span>
+                <div>
+                    <div class="mb-1"><strong>Paper Trading:</strong> Blacklist disabled - all symbols tradeable for testing/optimization</div>
+                    <div><strong>Live Trading:</strong> Symbols with &lt;-$5 P&L (30d) blocked, auto-unblock when improved</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Today's Trade Activity Summary -->
+    <div class="bg-gray-900 rounded-lg p-3 border border-gray-700 mb-4">
+        <div class="text-xs font-semibold text-gray-400 mb-2">Today's Trade Activity</div>
+        <div class="grid grid-cols-3 gap-3 text-xs">
+            <div>
+                <div class="text-gray-500">Trades</div>
+                <div class="text-white font-semibold" id="pnl-trades-count">0</div>
+            </div>
+            <div>
+                <div class="text-gray-500">Total Fees</div>
+                <div class="text-red-400 font-semibold" id="pnl-total-fees">$0.00</div>
+            </div>
+            <div>
+                <div class="text-gray-500">Avg Size</div>
+                <div class="text-gray-300 font-semibold" id="pnl-avg-size">$0.00</div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Live Account Breakdown (only shown in live mode) -->
+    <div id="pnl-live-breakdown" class="hidden mt-4 pt-4 border-t border-gray-700">
+        <div class="text-sm font-semibold text-gray-400 mb-2">Live Account Holdings:</div>
+        <div id="pnl-live-balances" class="grid grid-cols-2 gap-2 text-xs">
+            <!-- Populated dynamically -->
+        </div>
+    </div>
+    
+    <!-- Quick Actions -->
+    <div class="grid grid-cols-2 gap-2 mt-4">
+        <button onclick="refreshPnlCard()" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold transition-all">
+            🔄 Refresh
+        </button>
+        <button onclick="viewDetailedPnl()" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-sm font-semibold transition-all">
+            📊 Details
+        </button>
+    </div>
+</div>

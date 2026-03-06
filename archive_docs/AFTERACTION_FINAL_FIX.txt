@@ -1,0 +1,57 @@
+AfterAction API - FINAL FIX
+============================
+
+ISSUE: POST /analyze was returning 500 error with message: "'signal'"
+
+ROOT CAUSE:
+-----------
+The code was trying to access signal['signal'] but the database column
+is actually named 'signal_type' (not 'signal').
+
+COLUMNS IN signals TABLE:
+- signal_type (correct) ✓
+- NOT 'signal' ✗
+
+FIX APPLIED:
+------------
+Changed all references from:
+  signal['signal'] 
+  
+To:
+  signal['signal_type']
+
+Also updated comparison to handle case-insensitivity:
+  signal['signal_type'].upper() == 'BUY'
+
+FILES MODIFIED:
+- /opt/trading/services/afteraction_api/main.py (3 occurrences fixed)
+
+VERIFICATION:
+-------------
+✅ POST /analyze?mode=paper&hours=24 - Working! (200 OK)
+✅ GET /stats - Working! (200 OK)  
+✅ GET /reports - Working! (200 OK)
+
+Sample successful response from /analyze:
+{
+    "status": "success",
+    "report_id": 1,
+    "summary": {
+        "total_trades": 0,
+        "winning_trades": 0,
+        "losing_trades": 0,
+        "win_rate": 0,
+        "missed_opportunities": 0,
+        "false_signals": 0,
+        "regime": "unknown"
+    },
+    "recommendations": [...]
+}
+
+STATUS: ✅ FULLY FIXED
+
+NOW WORKING IN UI:
+- Refresh button (loads stats without error)
+- Run Analysis button (triggers analysis without error)
+- Stats display (shows proper data)
+- Recent insights (will populate as more analyses run)

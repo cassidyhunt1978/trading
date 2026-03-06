@@ -1,0 +1,70 @@
+# Web Framework
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.6
+pydantic-settings==2.7.1
+
+# Database
+psycopg2-binary==2.9.10
+sqlalchemy==2.0.36
+
+# Redis & Caching
+redis==5.2.1
+hiredis==3.1.0
+
+# Celery Task Queue
+celery==5.4.0
+flower==2.0.1
+
+# AI APIs
+anthropic==0.43.1
+openai==1.59.7
+
+# Data Analysis
+pandas>=2.3.2
+numpy>=2.2.6
+scipy>=1.15.2
+
+# Technical Analysis
+# TA-Lib==0.5.1  # Disabled due to build issues with Python 3.12/numpy 2.x
+pandas-ta==0.4.71b0
+
+# Optimization
+scikit-optimize==0.10.2
+deap==1.4.1
+
+# Sentiment Analysis
+praw==7.8.1
+tweepy==4.14.0
+newsapi-python==0.2.7
+vaderSentiment==3.3.2
+feedparser==6.0.11
+
+# Crypto Exchange APIs
+python-kraken-sdk==2.3.0
+ccxt==4.5.17
+
+# HTTP & Async
+httpx==0.28.1
+aiohttp==3.11.14
+requests==2.32.3
+
+# Utilities
+python-dotenv==1.0.1
+python-dateutil==2.9.0.post0
+pytz==2024.2
+
+# Testing
+pytest==8.3.4
+pytest-asyncio==0.24.0
+pytest-cov==6.0.0
+
+# Logging & Monitoring
+structlog==25.2.0
+rich==14.1.0
+
+# Data Validation
+jsonschema==4.23.0
+
+# Misc
+python-multipart==0.0.20

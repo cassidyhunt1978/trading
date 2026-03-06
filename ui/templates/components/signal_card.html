@@ -1,0 +1,21 @@
+{# Signal Card Component - Mobile-first ensemble signal display #}
+{% macro signal_card(id='ensemble-signals') %}
+<div id="{{ id }}-container" class="space-y-3">
+    <!-- Signals will be dynamically rendered here -->
+    <div class="text-center py-10 text-gray-400 symbol-card p-6">
+        <div class="text-4xl mb-4">⏳</div>
+        <div>Loading signals...</div>
+    </div>
+</div>
+{% endmacro %}
+
+{# Position Card Component - Mobile-first position display #}
+{% macro position_card(id='positions') %}
+<div id="{{ id }}-container" class="space-y-3">
+    <!-- Positions will be dynamically rendered here -->
+    <div class="text-center py-10 text-gray-400 symbol-card p-6">
+        <div class="text-4xl mb-4">⏳</div>
+        <div>Loading positions...</div>
+    </div>
+</div>
+{% endmacro %}

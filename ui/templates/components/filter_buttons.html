@@ -1,0 +1,16 @@
+{# Reusable Filter Button Group Component
+   Usage: {% include 'components/filter_buttons.html' with context %}
+   Context variables:
+   - filters: Array of filter definitions
+     Each filter: {id, label, value, onclick, active}
+#}
+<div class="flex gap-2 mb-4">
+    {% for filter in filters %}
+    <button 
+        onclick="{{ filter.onclick }}" 
+        id="{{ filter.id }}"
+        class="px-4 py-2 rounded {% if filter.active %}bg-blue-600 text-white font-semibold{% else %}bg-gray-700 hover:bg-gray-600{% endif %}">
+        {{ filter.label }}
+    </button>
+    {% endfor %}
+</div>

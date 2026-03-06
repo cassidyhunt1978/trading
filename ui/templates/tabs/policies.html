@@ -1,0 +1,222 @@
+        <div id="tab-policies" class="tab-content p-4">
+            <div class="max-w-6xl mx-auto">
+                <!-- Header with Mode Selector -->
+                <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+                    <div>
+                        <h2 class="text-2xl font-bold">Trading Safeguards</h2>
+                        <p class="text-sm text-gray-400 mt-1">Circuit breakers and risk limits</p>
+                    </div>
+                    <div class="flex gap-2">
+                        <select id="policy-mode" onchange="loadPolicies()" class="bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 font-semibold">
+                            <option value="paper">📄 Paper Mode</option>
+                            <option value="live">🔴 Live Mode</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Emergency Stop Card -->
+                <div class="symbol-card mb-4" id="emergency-stop-card" style="border-color: #ef4444;">
+                    <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                        <div class="flex-1">
+                            <div class="flex items-center gap-3 mb-2">
+                                <span class="text-2xl">🛑</span>
+                                <h3 class="text-xl font-bold">Emergency Stop</h3>
+                            </div>
+                            <p class="text-sm text-gray-400" id="emergency-status">All trading active</p>
+                            <p class="text-xs text-gray-500 mt-1" id="emergency-reason"></p>
+                        </div>
+                        <button id="emergency-btn" onclick="toggleEmergencyStop()" class="px-8 py-3 rounded-lg font-bold text-lg transition-all">
+                            🛑 STOP TRADING
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Today's Stats Card -->
+                <div class="symbol-card mb-4">
+                    <div class="flex items-center gap-3 mb-4">
+                        <span class="text-2xl">📊</span>
+                        <h3 class="text-lg font-bold">Today's Trading Activity</h3>
+                    </div>
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div>
+                            <div class="text-sm text-gray-400">P&L Today</div>
+                            <div class="text-xl font-bold" id="today-pnl">$0.00</div>
+                        </div>
+                        <div>
+                            <div class="text-sm text-gray-400">Trades Executed</div>
+                            <div class="text-xl font-bold" id="today-trades">0</div>
+                        </div>
+                        <div>
+                            <div class="text-sm text-gray-400">Open Positions</div>
+                            <div class="text-xl font-bold" id="current-open">0</div>
+                        </div>
+                        <div>
+                            <div class="text-sm text-gray-400">Consecutive Losses</div>
+                            <div class="text-xl font-bold" id="consecutive-losses">0</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Daily Limits Card -->
+                <div class="symbol-card mb-4">
+                    <div class="flex items-center gap-3 mb-4">
+                        <span class="text-2xl">⏱️</span>
+                        <h3 class="text-lg font-bold">Daily Limits</h3>
+                    </div>
+                    <div class="space-y-4">
+                        <!-- Daily Loss Limit -->
+                        <div>
+                            <div class="flex justify-between text-sm mb-2">
+                                <span class="text-gray-400">Daily Loss Limit</span>
+                                <span class="font-semibold" id="loss-limit-text">$0 / $10</span>
+                            </div>
+                            <div class="w-full bg-gray-700 rounded-full h-3 overflow-hidden">
+                                <div id="loss-limit-bar" class="h-full bg-red-500 transition-all" style="width: 0%"></div>
+                            </div>
+                            <div class="flex gap-2 mt-2">
+                                <input type="number" id="edit-daily-loss" value="10" step="5" class="flex-1 bg-gray-700 border border-gray-600 rounded px-3 py-1 text-sm">
+                                <button onclick="updatePolicy('daily_loss_limit')" class="bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded text-sm">Update</button>
+                            </div>
+                        </div>
+                        <!-- Daily Trade Limit -->
+                        <div>
+                            <div class="flex justify-between text-sm mb-2">
+                                <span class="text-gray-400">Daily Trade Limit</span>
+                                <span class="font-semibold" id="trade-limit-text">0 / 10</span>
+                            </div>
+                            <div class="w-full bg-gray-700 rounded-full h-3 overflow-hidden">
+                                <div id="trade-limit-bar" class="h-full bg-blue-500 transition-all" style="width: 0%"></div>
+                            </div>
+                            <div class="flex gap-2 mt-2">
+                                <input type="number" id="edit-daily-trades" value="10" step="5" class="flex-1 bg-gray-700 border border-gray-600 rounded px-3 py-1 text-sm">
+                                <button onclick="updatePolicy('daily_trade_limit')" class="bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded text-sm">Update</button>
+                            </div>
+                        </div>
+                        <!-- Max Position Size -->
+                        <div>
+                            <div class="flex justify-between text-sm mb-2">
+                                <span class="text-gray-400">Max Position Size</span>
+                                <span class="font-semibold" id="position-size-text">$50</span>
+                            </div>
+                            <div class="flex gap-2 mt-2">
+                                <input type="number" id="edit-position-size" value="50" step="10" class="flex-1 bg-gray-700 border border-gray-600 rounded px-3 py-1 text-sm">
+                                <button onclick="updatePolicy('max_position_size')" class="bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded text-sm">Update</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Position Management Card -->
+                <div class="symbol-card mb-4">
+                    <div class="flex items-center gap-3 mb-4">
+                        <span class="text-2xl">📍</span>
+                        <h3 class="text-lg font-bold">Position Management</h3>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <div class="text-sm text-gray-400 mb-2">Max Open Positions</div>
+                            <div class="flex gap-2">
+                                <input type="number" id="edit-max-open" value="25" step="5" class="flex-1 bg-gray-700 border border-gray-600 rounded px-3 py-2">
+                                <button onclick="updatePolicy('max_open_positions')" class="bg-blue-600 hover:bg-blue-700 px-3 py-2 rounded text-sm">Update</button>
+                            </div>
+                            <div class="text-xs text-gray-500 mt-1">Current: <span id="max-open-display">25</span></div>
+                        </div>
+                        <div>
+                            <div class="text-sm text-gray-400 mb-2">Max Per Symbol</div>
+                            <div class="flex gap-2">
+                                <input type="number" id="edit-max-per-symbol" value="1" step="1" class="flex-1 bg-gray-700 border border-gray-600 rounded px-3 py-2">
+                                <button onclick="updatePolicy('max_positions_per_symbol')" class="bg-blue-600 hover:bg-blue-700 px-3 py-2 rounded text-sm">Update</button>
+                            </div>
+                            <div class="text-xs text-gray-500 mt-1">Current: <span id="max-per-symbol-display">1</span></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Market Costs Card -->
+                <div class="symbol-card mb-4">
+                    <div class="flex items-center gap-3 mb-4">
+                        <span class="text-2xl">💰</span>
+                        <h3 class="text-lg font-bold">Real Market Costs</h3>
+                    </div>
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div>
+                            <div class="text-sm text-gray-400">Slippage</div>
+                            <div class="text-lg font-bold" id="cost-slippage">0.10%</div>
+                        </div>
+                        <div>
+                            <div class="text-sm text-gray-400">Spread</div>
+                            <div class="text-lg font-bold" id="cost-spread">0.05%</div>
+                        </div>
+                        <div>
+                            <div class="text-sm text-gray-400">Exchange Fee</div>
+                            <div class="text-lg font-bold" id="cost-fee">0.26%</div>
+                        </div>
+                        <div>
+                            <div class="text-sm text-gray-400">Total Round Trip</div>
+                            <div class="text-lg font-bold text-yellow-400" id="cost-total">0.82%</div>
+                        </div>
+                    </div>
+                    <div class="mt-3 p-2 bg-gray-700 rounded text-sm">
+                        <span class="text-gray-400">Breakeven Required:</span>
+                        <span class="font-semibold text-yellow-400" id="breakeven-required">&gt;0.82%</span>
+                    </div>
+                </div>
+
+                <!-- Alert Thresholds Card -->
+                <div class="symbol-card mb-4">
+                    <div class="flex items-center gap-3 mb-4">
+                        <span class="text-2xl">🔔</span>
+                        <h3 class="text-lg font-bold">Alert Thresholds</h3>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <div class="text-sm text-gray-400 mb-2">Daily Profit Alert (%)</div>
+                            <div class="flex gap-2">
+                                <input type="number" id="edit-profit-alert" value="3.0" step="0.5" class="flex-1 bg-gray-700 border border-gray-600 rounded px-3 py-2">
+                                <button onclick="updatePolicy('alert_daily_profit_pct')" class="bg-blue-600 hover:bg-blue-700 px-3 py-2 rounded text-sm">Update</button>
+                            </div>
+                        </div>
+                        <div>
+                            <div class="text-sm text-gray-400 mb-2">Daily Loss Alert (%)</div>
+                            <div class="flex gap-2">
+                                <input type="number" id="edit-loss-alert" value="2.0" step="0.5" class="flex-1 bg-gray-700 border border-gray-600 rounded px-3 py-2">
+                                <button onclick="updatePolicy('alert_daily_loss_pct')" class="bg-blue-600 hover:bg-blue-700 px-3 py-2 rounded text-sm">Update</button>
+                            </div>
+                        </div>
+                        <div>
+                            <div class="text-sm text-gray-400 mb-2">Drawdown Alert (%)</div>
+                            <div class="flex gap-2">
+                                <input type="number" id="edit-drawdown-alert" value="10.0" step="1" class="flex-1 bg-gray-700 border border-gray-600 rounded px-3 py-2">
+                                <button onclick="updatePolicy('alert_drawdown_pct')" class="bg-blue-600 hover:bg-blue-700 px-3 py-2 rounded text-sm">Update</button>
+                            </div>
+                        </div>
+                        <div>
+                            <div class="text-sm text-gray-400 mb-2">Consecutive Losses</div>
+                            <div class="flex gap-2">
+                                <input type="number" id="edit-consecutive-alert" value="3" step="1" class="flex-1 bg-gray-700 border border-gray-600 rounded px-3 py-2">
+                                <button onclick="updatePolicy('alert_consecutive_losses')" class="bg-blue-600 hover:bg-blue-700 px-3 py-2 rounded text-sm">Update</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mt-4 flex items-center justify-between p-3 bg-gray-700 rounded">
+                        <span class="text-sm">Alerts Sent Today: <span class="font-bold" id="alerts-sent-today">0</span></span>
+                    </div>
+                </div>
+
+                <!-- Trading Status Summary -->
+                <div id="trading-status-card" class="symbol-card">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-3">
+                            <span class="text-3xl" id="status-icon">✅</span>
+                            <div>
+                                <h3 class="text-lg font-bold" id="status-text">Trading Active</h3>
+                                <p class="text-sm text-gray-400" id="status-detail">All systems operational</p>
+                            </div>
+                        </div>
+                        <button onclick="loadPolicies()" class="bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded-lg text-sm">
+                            🔄 Refresh
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>

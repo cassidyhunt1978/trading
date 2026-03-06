@@ -1,0 +1,9 @@
+{% from 'components/macros.html' import loading_state %}
+
+        <div id="tab-symbols" class="tab-content p-4">
+            <!-- Symbol Cards Grid -->
+            <div id="symbols-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <!-- Cards will be generated here -->
+                {{ loading_state('Loading symbols...') }}
+            </div>
+        </div>

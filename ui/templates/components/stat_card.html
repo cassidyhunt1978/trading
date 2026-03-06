@@ -1,0 +1,12 @@
+{# Reusable Stat Card Component 
+   Usage: {% include 'components/stat_card.html' with context %}
+   Context variables:
+   - label: Card label text
+   - value_id: ID for the value element
+   - value: Initial value (optional, defaults to '-')
+   - color: Text color class (optional, defaults to '')
+#}
+<div class="bg-gray-800 p-4 rounded-lg">
+    <div class="text-gray-400 text-sm mb-1">{{ label }}</div>
+    <div class="text-2xl font-bold {{ color }}" id="{{ value_id }}">{{ value|default('-', true) }}</div>
+</div>

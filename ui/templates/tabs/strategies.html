@@ -1,0 +1,239 @@
+        <div id="tab-strategies" class="tab-content p-4">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-2xl font-bold">Strategy Lab</h2>
+                <div class="flex gap-2">
+                    <button onclick="bulkOptimizeAll()" class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded-lg font-semibold">
+                        🚀 Bulk Optimize All
+                    </button>
+                    <button onclick="showCreateStrategy()" class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg font-semibold">
+                        + New Strategy
+                    </button>
+                </div>
+            </div>
+
+            <!-- Filter Controls -->
+            <div class="flex gap-2 mb-4">
+                <button onclick="filterStrategies('all')" id="filter-all-strategies" class="px-4 py-2 rounded bg-blue-600 hover:bg-blue-700">
+                    All
+                </button>
+                <button onclick="filterStrategies('active')" id="filter-active-strategies" class="px-4 py-2 rounded bg-gray-700 hover:bg-gray-600">
+                    Active Only
+                </button>
+                <button onclick="filterStrategies('inactive')" id="filter-inactive-strategies" class="px-4 py-2 rounded bg-gray-700 hover:bg-gray-600">
+                    Inactive Only
+                </button>
+            </div>
+
+            <!-- Strategies Grid (compact) -->
+            <div id="strategies-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+                <!-- Populated by loadStrategies() -->
+            </div>
+
+            <!-- Strategy Details Modal -->
+            <div id="strategy-details-modal" class="modal-overlay">
+                <div class="modal-content p-6 max-w-6xl">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-xl font-bold" id="strategy-detail-name">Strategy Details</h3>
+                        <button onclick="closeStrategyDetails()" class="text-gray-400 hover:text-white text-2xl">&times;</button>
+                    </div>
+                    
+                    <div class="space-y-3">
+                        <!-- Symbol Selector - Modern Design -->
+                        <div class="bg-gradient-to-br from-gray-800 to-gray-850 border border-gray-700 p-3 rounded-lg">
+                            <label class="block text-xs font-medium text-gray-400 mb-1.5">Symbol</label>
+                            <select id="strategy-detail-symbol" onchange="onSymbolChange();" 
+                                class="w-full bg-gray-900 border border-gray-700 rounded px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none">
+                                <option value="">Loading symbols...</option>
+                            </select>
+                        </div>
+
+                        <!-- Performance - Modern Compact Design -->
+                        <div class="bg-gradient-to-br from-gray-800 to-gray-850 border border-gray-700 p-3 rounded-lg">
+                            <!-- Backtest Metrics -->
+                            <div id="backtest-metrics" class="mb-3 pb-3 border-b border-gray-700 hidden">
+                                <div class="flex flex-wrap items-center gap-2 text-xs">
+                                    <span class="px-2 py-0.5 bg-purple-500 bg-opacity-20 text-purple-300 rounded font-medium">Backtest</span>
+                                    <div class="flex items-center gap-1.5">
+                                        <span class="text-gray-500">Win</span>
+                                        <span id="bt-winrate" class="font-semibold text-white">-</span>
+                                    </div>
+                                    <span class="text-gray-600">•</span>
+                                    <div class="flex items-center gap-1.5">
+                                        <span class="text-gray-500">Trades</span>
+                                        <span id="bt-trades" class="font-semibold text-white">-</span>
+                                    </div>
+                                    <span class="text-gray-600">•</span>
+                                    <div class="flex items-center gap-1.5">
+                                        <span class="text-gray-500">Return</span>
+                                        <span id="bt-return" class="font-semibold">-</span>
+                                    </div>
+                                    <span class="text-gray-600">•</span>
+                                    <div class="flex items-center gap-1.5">
+                                        <span class="text-gray-500">MaxDD</span>
+                                        <span id="bt-drawdown" class="font-semibold text-red-400">-</span>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- P&L Summary -->
+                            <div class="flex flex-wrap items-center gap-2 text-xs">
+                                <span class="px-2 py-0.5 bg-blue-500 bg-opacity-20 text-blue-300 rounded font-medium">P&L</span>
+                                <div class="flex items-center gap-1.5">
+                                    <span class="text-gray-500">BT</span>
+                                    <span id="backtest-pnl" class="font-semibold">-</span>
+                                </div>
+                                <span class="text-gray-600">•</span>
+                                <div class="flex items-center gap-1.5">
+                                    <span class="text-gray-500">Paper</span>
+                                    <span id="paper-pnl" class="font-semibold">-</span>
+                                </div>
+                                <span class="text-gray-600">•</span>
+                                <div class="flex items-center gap-1.5">
+                                    <span class="text-gray-500">Live</span>
+                                    <span id="live-pnl" class="font-semibold">-</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Chart - Modern Design -->
+                        <div class="bg-gradient-to-br from-gray-800 to-gray-850 border border-gray-700 p-4 rounded-lg">
+                            <div class="flex justify-between items-center mb-3">
+                                <div class="flex items-center gap-2">
+                                    <h4 class="text-base font-semibold">Chart</h4>
+                                    <span class="text-xs text-gray-500">drag to scroll</span>
+                                </div>
+                                <button id="reset-zoom-btn" onclick="resetChartZoom()" 
+                                    class="bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded text-xs hidden transition-colors">
+                                    Reset
+                                </button>
+                            </div>
+                            <div class="bg-gray-900 rounded-lg p-2" style="height: 400px; position: relative;">
+                                <canvas id="strategy-chart"></canvas>
+                            </div>
+                            <div id="chart-loading" class="text-center text-gray-400 py-8 text-sm">Loading chart...</div>
+                        </div>
+
+                        <!-- Signal Alignment Alert -->
+                        <div id="signal-alert-banner" class="hidden"></div>
+
+                        <!-- Signal Alignment - Modern Compact Design -->
+                        <div>
+                            <div class="flex items-center gap-2 mb-2">
+                                <h4 class="text-base font-semibold">Alignment</h4>
+                                <span class="text-xs text-gray-500">click signal to jump</span>
+                            </div>
+                            <div id="signal-comparison-table" class="bg-gradient-to-br from-gray-800 to-gray-850 border border-gray-700 rounded-lg p-3 overflow-x-auto">
+                                <div class="text-center text-gray-400 text-sm">Loading...</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-4 flex gap-2 justify-end">
+                        <button onclick="closeStrategyDetails()" class="bg-gray-600 hover:bg-gray-700 px-4 py-2 rounded-lg">
+                            Close
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Create Strategy Modal -->
+            <div id="create-strategy-modal" class="modal-overlay">
+                <div class="modal-content p-6">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-xl font-bold">Create Strategy</h3>
+                        <button onclick="closeCreateStrategy()" class="text-gray-400 hover:text-white text-2xl">&times;</button>
+                    </div>
+                    
+                    <form id="strategy-form" class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-semibold mb-1">Strategy Name</label>
+                            <input type="text" id="strategy-name" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2" placeholder="My RSI Strategy" required>
+                        </div>
+                        
+                        <div>
+                            <label class="block text-sm font-semibold mb-1">Description</label>
+                            <textarea id="strategy-desc" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2" rows="2" placeholder="Buy when RSI < 30, sell when RSI > 70"></textarea>
+                        </div>
+                        
+                        <!-- Indicator Selection -->
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-semibold mb-1">Buy Indicator</label>
+                                <select id="buy-indicator" onchange="updateParameterFields()" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2">
+                                    <option value="RSI_14">RSI</option>
+                                    <option value="MACD">MACD</option>
+                                    <option value="SMA_20">SMA</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-semibold mb-1">Buy Condition</label>
+                                <div class="flex gap-2">
+                                    <select id="buy-operator" class="bg-gray-800 border border-gray-700 rounded px-2 py-2">
+                                        <option value="<">&lt;</option>
+                                        <option value=">">&gt;</option>
+                                        <option value="=">=</option>
+                                    </select>
+                                    <input type="number" id="buy-value" class="flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-2" placeholder="30" required>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-semibold mb-1">Sell Indicator</label>
+                                <select id="sell-indicator" onchange="updateParameterFields()" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2">
+                                    <option value="RSI_14">RSI</option>
+                                    <option value="MACD">MACD</option>
+                                    <option value="SMA_20">SMA</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-semibold mb-1">Sell Condition</label>
+                                <div class="flex gap-2">
+                                    <select id="sell-operator" class="bg-gray-800 border border-gray-700 rounded px-2 py-2">
+                                        <option value="<">&lt;</option>
+                                        <option value=">" selected>&gt;</option>
+                                        <option value="=">=</option>
+                                    </select>
+                                    <input type="number" id="sell-value" class="flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-2" placeholder="70" required>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Adjustable Parameters Section -->
+                        <div class="border-t border-gray-700 pt-4">
+                            <div class="flex justify-between items-center mb-3">
+                                <h4 class="font-semibold text-blue-400">Strategy Parameters</h4>
+                                <span class="text-xs text-gray-500">These become adjustable per symbol</span>
+                            </div>
+                            <div id="parameter-fields" class="space-y-3">
+                                <!-- Populated dynamically -->
+                                <div class="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <label class="block text-xs text-gray-400 mb-1">RSI Period</label>
+                                        <input type="number" id="param-rsi_period" value="14" min="7" max="30" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2">
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs text-gray-400 mb-1">RSI Oversold</label>
+                                        <input type="number" id="param-rsi_oversold" value="30" min="10" max="40" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2">
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs text-gray-400 mb-1">RSI Overbought</label>
+                                        <input type="number" id="param-rsi_overbought" value="70" min="60" max="90" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="flex gap-3 pt-4">
+                            <button type="submit" class="flex-1 bg-green-600 hover:bg-green-700 py-2 rounded-lg font-semibold">
+                                Create Strategy
+                            </button>
+                            <button type="button" onclick="closeCreateStrategy()" class="flex-1 bg-gray-700 hover:bg-gray-600 py-2 rounded-lg font-semibold">
+                                Cancel
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>

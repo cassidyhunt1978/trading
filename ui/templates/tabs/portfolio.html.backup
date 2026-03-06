@@ -1,0 +1,153 @@
+        <div id="tab-portfolio" class="tab-content p-4">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-2xl font-bold">Portfolio & Positions</h2>
+                <button onclick="loadPositions()" class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg font-semibold">
+                    🔄 Refresh
+                </button>
+            </div>
+
+            <!-- Position Filters -->
+            <div class="flex gap-2 mb-4">
+                <button onclick="filterPositions('all')" id="filter-all" class="px-4 py-2 rounded bg-blue-600 text-white font-semibold">
+                    All
+                </button>
+                <button onclick="filterPositions('open')" id="filter-open" class="px-4 py-2 rounded bg-gray-700 hover:bg-gray-600">
+                    Open Positions
+                </button>
+                <button onclick="filterPositions('closed')" id="filter-closed" class="px-4 py-2 rounded bg-gray-700 hover:bg-gray-600">
+                    Closed Positions
+                </button>
+                <button onclick="filterPositions('paper')" id="filter-paper" class="px-4 py-2 rounded bg-gray-700 hover:bg-gray-600">
+                    Paper Trading
+                </button>
+                <button onclick="filterPositions('live')" id="filter-live" class="px-4 py-2 rounded bg-gray-700 hover:bg-gray-600">
+                    Live Trading
+                </button>
+            </div>
+
+            <!-- Summary Cards -->
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                <div class="bg-gray-800 p-4 rounded-lg">
+                    <div class="text-gray-400 text-sm mb-1">Open Positions</div>
+                    <div class="text-2xl font-bold" id="open-count">-</div>
+                </div>
+                <div class="bg-gray-800 p-4 rounded-lg">
+                    <div class="text-gray-400 text-sm mb-1">Total P&L (Open)</div>
+                    <div class="text-2xl font-bold" id="open-pnl">-</div>
+                </div>
+                <div class="bg-gray-800 p-4 rounded-lg">
+                    <div class="text-gray-400 text-sm mb-1">Closed Today</div>
+                    <div class="text-2xl font-bold" id="closed-today">-</div>
+                </div>
+                <div class="bg-gray-800 p-4 rounded-lg">
+                    <div class="text-gray-400 text-sm mb-1">Daily P&L</div>
+                    <div class="text-2xl font-bold" id="daily-pnl">-</div>
+                </div>
+            </div>
+
+            <!-- Ensemble Signals Card (Phase 3) -->
+            <div class="bg-gradient-to-br from-purple-900 to-purple-800 rounded-lg p-6 mb-6 border-2 border-purple-500">
+                <div class="flex justify-between items-center mb-4">
+                    <div class="flex items-center gap-3">
+                        <div class="text-3xl">🎯</div>
+                        <div>
+                            <h3 class="text-2xl font-bold text-white">Ensemble Signals</h3>
+                            <p class="text-sm text-purple-200">Performance-weighted top signals from all strategies</p>
+                        </div>
+                    </div>
+                    <div class="flex gap-2 items-center">
+                        <select id="ensemble-period" onchange="loadEnsembleSignals()" class="bg-purple-950 px-3 py-2 rounded text-sm border border-purple-600">
+                            <option value="7">7 Days</option>
+                            <option value="14" selected>14 Days</option>
+                            <option value="30">30 Days</option>
+                        </select>
+                        <input 
+                            type="number" 
+                            id="ensemble-threshold" 
+                            value="70" 
+                            min="0" 
+                            max="200" 
+                            step="5"
+                            onchange="loadEnsembleSignals()" 
+                            class="bg-purple-950 px-3 py-2 rounded text-sm w-20 border border-purple-600"
+                            placeholder="Min Score"
+                        />
+                        <button onclick="loadEnsembleSignals()" class="text-purple-200 hover:text-white text-sm px-3 py-2 bg-purple-950 rounded border border-purple-600">↻ Refresh</button>
+                        <button onclick="openEnsembleBacktestModal()" class="text-white text-sm px-3 py-2 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 rounded border border-green-500 font-medium">📊 Backtest Ensemble</button>
+                    </div>
+                </div>
+
+                <!-- Ensemble Stats -->
+                <div class="grid grid-cols-4 gap-3 mb-4">
+                    <div class="bg-purple-950 bg-opacity-50 rounded p-3 text-center">
+                        <div class="text-2xl font-bold text-purple-200" id="ensemble-count">-</div>
+                        <div class="text-xs text-purple-300">Signals Found</div>
+                    </div>
+                    <div class="bg-purple-950 bg-opacity-50 rounded p-3 text-center">
+                        <div class="text-2xl font-bold text-green-400" id="ensemble-high-conf">-</div>
+                        <div class="text-xs text-purple-300">High Confidence</div>
+                    </div>
+                    <div class="bg-purple-950 bg-opacity-50 rounded p-3 text-center">
+                        <div class="text-2xl font-bold text-blue-400" id="ensemble-avg-score">-</div>
+                        <div class="text-xs text-purple-300">Avg Weighted Score</div>
+                    </div>
+                    <div class="bg-purple-950 bg-opacity-50 rounded p-3 text-center">
+                        <div class="text-2xl font-bold text-yellow-400" id="ensemble-consensus">-</div>
+                        <div class="text-xs text-purple-300">Consensus Signals</div>
+                    </div>
+                </div>
+
+                <!-- Ensemble Signals Table -->
+                <div class="bg-purple-950 bg-opacity-30 rounded-lg overflow-hidden">
+                    <table class="w-full text-sm">
+                        <thead>
+                            <tr class="border-b border-purple-700 bg-purple-950 bg-opacity-50">
+                                <th class="text-left py-3 px-3 text-purple-200">Rank</th>
+                                <th class="text-left py-3 px-3 text-purple-200">Symbol</th>
+                                <th class="text-left py-3 px-3 text-purple-200">Strategy</th>
+                                <th class="text-center py-3 px-3 text-purple-200">Signal</th>
+                                <th class="text-right py-3 px-3 text-purple-200">Weighted Score</th>
+                                <th class="text-right py-3 px-3 text-purple-200">Win Rate</th>
+                                <th class="text-center py-3 px-3 text-purple-200">Confidence</th>
+                                <th class="text-right py-3 px-3 text-purple-200">Projected Return</th>
+                                <th class="text-center py-3 px-3 text-purple-200">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="ensemble-signals-table">
+                            <tr>
+                                <td colspan="9" class="text-center py-6 text-purple-300">
+                                    Loading ensemble signals...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Positions Table -->
+            <div id="positions-container" class="bg-gray-800 rounded-lg p-4">
+                <table class="w-full">
+                    <thead>
+                        <tr class="text-left text-gray-400 border-b border-gray-700">
+                            <th class="pb-2">Symbol</th>
+                            <th class="pb-2">Strategy</th>
+                            <th class="pb-2">Side</th>
+                            <th class="pb-2">Entry</th>
+                            <th class="pb-2">Current</th>
+                            <th class="pb-2">P&L</th>
+                            <th class="pb-2">Status</th>
+                            <th class="pb-2">Mode</th>
+                            <th class="pb-2">Time</th>
+                            <th class="pb-2">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="positions-table">
+                        <tr>
+                            <td colspan="10" class="text-center py-10 text-gray-500">
+                                Loading positions...
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>

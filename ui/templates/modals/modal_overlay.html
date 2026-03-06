@@ -1,0 +1,11 @@
+    <div id="modal-overlay" class="modal-overlay" onclick="closeModal(event)">
+        <div class="modal-content" onclick="event.stopPropagation()">
+            <div id="modal-header" class="sticky top-0 bg-gray-800 p-4 border-b border-gray-700 flex items-center justify-between z-10">
+                <h2 id="modal-title" class="text-xl font-bold">Details</h2>
+                <button onclick="closeModal()" class="text-3xl leading-none hover:text-red-400">&times;</button>
+            </div>
+            <div id="modal-body" class="p-6">
+                <!-- Modal content loaded here -->
+            </div>
+        </div>
+    </div>
