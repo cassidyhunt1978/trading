@@ -30,6 +30,9 @@ function closeModal(event) {
             .then(m => m.destroyChartTerminal())
             .catch(() => {});
     }
+    // Remove the chart terminal stylesheet so it doesn't pollute the rest of the app
+    const chartCss = document.getElementById('chart-terminal-css');
+    if (chartCss) chartCss.remove();
     // Restore modal body padding for non-chart modals
     const modalBody = document.getElementById('modal-body');
     if (modalBody) modalBody.style.padding = '';

@@ -25,8 +25,6 @@
     
     <!-- Application Styles (External) -->
     <link rel="stylesheet" href="/css/app.css">
-    <!-- MarketMind Chart Terminal Styles -->
-    <link rel="stylesheet" href="/chart-terminal/style.css">
 </head>
 <body class="bg-gray-900 text-gray-100">
     
@@ -310,6 +308,15 @@
         // Show Chart Modal — injects MarketMind terminal directly into the modal
         async function showChart(symbol) {
             window.currentSymbol = symbol;
+
+            // Inject chart terminal CSS only while modal is open
+            if (!document.getElementById('chart-terminal-css')) {
+                const link = document.createElement('link');
+                link.id   = 'chart-terminal-css';
+                link.rel  = 'stylesheet';
+                link.href = '/chart-terminal/style.css';
+                document.head.appendChild(link);
+            }
 
             // Inject terminal HTML, remove body padding for full-bleed chart
             document.getElementById('modal-body').style.padding = '0';
