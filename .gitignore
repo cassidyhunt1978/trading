@@ -28,6 +28,12 @@ ui/node_modules/
 *.swp
 *.swo
 
+# Celery runtime state (auto-updated by beat scheduler — not source code)
+celerybeat-schedule
+celerybeat-schedule.*
+celery_worker/celerybeat-schedule
+celery_worker/celerybeat-schedule.*
+
 # OS
 .DS_Store
 Thumbs.db
