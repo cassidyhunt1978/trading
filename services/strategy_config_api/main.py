@@ -25,6 +25,45 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+def _ensure_constraints():
+    """Idempotently add unique constraints and missing columns needed for upserts."""
+    stmts = [
+        # Unique constraints for ON CONFLICT upserts
+        ("charts_strategies_strategy_name_key",
+         "ALTER TABLE charts_strategies ADD CONSTRAINT charts_strategies_strategy_name_key UNIQUE (strategy_name)"),
+        ("strategies_name_key",
+         "ALTER TABLE strategies ADD CONSTRAINT strategies_name_key UNIQUE (name)"),
+    ]
+    col_stmts = [
+        # strategies.updated_at — used in ON CONFLICT DO UPDATE
+        ("strategies", "updated_at",
+         "ALTER TABLE strategies ADD COLUMN updated_at TIMESTAMPTZ"),
+    ]
+    try:
+        with get_connection() as conn:
+            conn.autocommit = True
+            with conn.cursor() as cur:
+                for cname, ddl in stmts:
+                    cur.execute("SELECT 1 FROM pg_constraint WHERE conname = %s", (cname,))
+                    if not cur.fetchone():
+                        cur.execute(ddl)
+                        logger.info("constraint_added", constraint=cname)
+                for tbl, col, ddl in col_stmts:
+                    cur.execute("""
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = %s AND column_name = %s
+                    """, (tbl, col))
+                    if not cur.fetchone():
+                        cur.execute(ddl)
+                        logger.info("column_added", table=tbl, column=col)
+    except Exception as e:
+        logger.warning("ensure_constraints_warning", error=str(e))
+
+
+_ensure_constraints()
+
+
 class ParameterSpec(BaseModel):
     name: str
     type: str  # 'int', 'float', 'bool'
@@ -1525,8 +1564,8 @@ def import_charts_strategy(payload: ChartsStrategyImport):
                 else:
                     cur.execute("""
                         INSERT INTO strategies
-                            (name, description, indicator_logic, enabled, created_at)
-                        VALUES (%s, %s, %s, true, NOW())
+                            (name, description, indicator_logic, parameters, enabled, created_at)
+                        VALUES (%s, %s, %s, %s::jsonb, true, NOW())
                         ON CONFLICT (name) DO UPDATE SET
                             indicator_logic = EXCLUDED.indicator_logic,
                             enabled = true,
@@ -1536,6 +1575,7 @@ def import_charts_strategy(payload: ChartsStrategyImport):
                         payload.strategy_name,
                         f"Imported from charts: {payload.source_file}",
                         indicator_logic,
+                        '{}',
                     ))
                     strategy_id = cur.fetchone()['id']
                     # Link back to charts_strategies
