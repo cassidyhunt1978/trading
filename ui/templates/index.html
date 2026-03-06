@@ -320,65 +320,6 @@
             modalBody.style.padding = '0';
             openModal(`${symbol} — MarketMind Charts`, content);
         }
-            
-            // Load chart data
-            try {
-                const response = await fetch(`http://${window.API_HOST}:8012/candles?symbol=${symbol}&limit=500&days_back=30`);
-                const candles = await response.json();
-                
-                document.getElementById('candle-info').textContent = `${candles.length} candles loaded`;
-                
-                if (candles.length === 0) {
-                    document.getElementById('candle-info').innerHTML = `
-                        <span class="text-yellow-400">No candles yet. Celery workers are fetching data every 60 seconds.</span>
-                    `;
-                    return;
-                }
-                
-                const ctx = document.getElementById('price-chart').getContext('2d');
-                
-                if (window.chartInstance) window.chartInstance.destroy();
-
-                window.chartInstance = new Chart(ctx, {
-                    type: 'line',
-                    data: {
-                        labels: candles.map(c => new Date(c.timestamp)),
-                        datasets: [{
-                            label: `${symbol} Price`,
-                            data: candles.map(c => c.close),
-                            borderColor: '#3b82f6',
-                            backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                            borderWidth: 2,
-                            pointRadius: 0,
-                            fill: true,
-                            tension: 0.1
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: {
-                            legend: { display: false }
-                        },
-                        scales: {
-                            x: {
-                                type: 'time',
-                                time: { unit: 'day' },
-                                grid: { color: '#374151' },
-                                ticks: { color: '#9ca3af' }
-                            },
-                            y: {
-                                grid: { color: '#374151' },
-                                ticks: { color: '#9ca3af' }
-                            }
-                        }
-                    }
-                });
-            } catch (error) {
-                console.error('Error loading chart:', error);
-                document.getElementById('candle-info').innerHTML = `<span class="text-red-400">Error loading chart data</span>`;
-            }
-        }
         
         // Show Signals Modal
         async function showSignals(symbol) {
