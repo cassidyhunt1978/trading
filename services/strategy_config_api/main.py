@@ -1487,7 +1487,7 @@ def import_charts_strategy(payload: ChartsStrategyImport):
                         backtest_summary = EXCLUDED.backtest_summary,
                         profit_factor   = EXCLUDED.profit_factor,
                         win_rate        = EXCLUDED.win_rate,
-                        updated_at      = NOW()
+                        imported_at     = NOW()
                     RETURNING id, strategy_id
                 """, (
                     payload.source_file,
