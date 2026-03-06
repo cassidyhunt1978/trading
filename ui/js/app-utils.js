@@ -24,9 +24,12 @@ function openModal(title, content) {
 function closeModal(event) {
     if (event && event.target !== event.currentTarget) return;
     document.getElementById('modal-overlay').classList.remove('active');
-    // Destroy any embedded iframe to stop background processing
-    const iframe = document.getElementById('charts-iframe');
-    if (iframe) iframe.src = 'about:blank';
+    // Destroy MarketMind engine if a chart terminal was open
+    if (window._chartEngine || window._engine) {
+        import('/chart-terminal/src/terminal_init.js')
+            .then(m => m.destroyChartTerminal())
+            .catch(() => {});
+    }
     // Restore modal body padding for non-chart modals
     const modalBody = document.getElementById('modal-body');
     if (modalBody) modalBody.style.padding = '';

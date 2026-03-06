@@ -25,6 +25,8 @@
     
     <!-- Application Styles (External) -->
     <link rel="stylesheet" href="/css/app.css">
+    <!-- MarketMind Chart Terminal Styles -->
+    <link rel="stylesheet" href="/chart-terminal/style.css">
 </head>
 <body class="bg-gray-900 text-gray-100">
     
@@ -302,23 +304,26 @@
             }
         }
         
-        // Show Chart Modal - embeds MarketMind charts app in modal iframe
+        // MarketMind Chart Terminal HTML (rendered from template)
+        const _CHART_TERMINAL_HTML = `{% include 'modals/chart_terminal.html' %}`;
+
+        // Show Chart Modal — injects MarketMind terminal directly into the modal
         async function showChart(symbol) {
             window.currentSymbol = symbol;
-            const src = `/charts/?symbol=${encodeURIComponent(symbol)}`;
-            const content = `
-                <iframe
-                    id="charts-iframe"
-                    src="${src}"
-                    style="width:100%;height:78vh;border:none;border-radius:8px;display:block;"
-                    allow="fullscreen"
-                    title="${symbol} MarketMind Chart"
-                ></iframe>
-            `;
-            // Expand modal body to edge-to-edge (no padding) for charts
-            const modalBody = document.getElementById('modal-body');
-            modalBody.style.padding = '0';
-            openModal(`${symbol} — MarketMind Charts`, content);
+
+            // Inject terminal HTML, remove body padding for full-bleed chart
+            document.getElementById('modal-body').style.padding = '0';
+            openModal(`${symbol} — MarketMind Charts`, _CHART_TERMINAL_HTML);
+
+            // Dynamically import and boot the terminal engine
+            try {
+                const { initChartTerminal } = await import('/chart-terminal/src/terminal_init.js');
+                await initChartTerminal(symbol);
+            } catch (err) {
+                console.error('Chart terminal failed to load:', err);
+                document.getElementById('modal-body').innerHTML =
+                    `<div class="p-8 text-red-400 text-center">Chart failed to load: ${err.message}</div>`;
+            }
         }
         
         // Show Signals Modal

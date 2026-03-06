@@ -11,6 +11,8 @@ app = Flask(__name__,
 app.jinja_env.auto_reload = True
 app.config['TEMPLATES_AUTO_RELOAD'] = True
 
+CHARTS_REPO = '/opt/charts_repo'
+
 @app.route('/')
 def index():
     """Render main page"""
@@ -25,6 +27,16 @@ def serve_js(filename):
 def serve_css(filename):
     """Serve CSS files"""
     return send_from_directory('css', filename)
+
+@app.route('/chart-terminal/src/<path:filename>')
+def serve_chart_src(filename):
+    """Serve charts app ES module source files"""
+    return send_from_directory(os.path.join(CHARTS_REPO, 'src'), filename)
+
+@app.route('/chart-terminal/style.css')
+def serve_chart_css():
+    """Serve charts app stylesheet"""
+    return send_from_directory(CHARTS_REPO, 'style.css')
 
 @app.route('/health')
 def health():
