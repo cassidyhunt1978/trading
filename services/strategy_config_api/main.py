@@ -1430,13 +1430,13 @@ def get_charts_strategies():
     Used by the charts front-end to load strategies for background signal overlay.
     """
     try:
-        with get_db_connection() as conn:
+        with get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
                     SELECT id, strategy_name, entry_rules, exit_rules,
-                           risk_params, backtest_summary, created_at
+                           risk_params, backtest_summary, imported_at
                     FROM charts_strategies
-                    ORDER BY created_at DESC
+                    ORDER BY imported_at DESC
                 """)
                 rows = cur.fetchall()
                 strategies = []
@@ -1448,7 +1448,7 @@ def get_charts_strategies():
                         "exit_rules":       row[3],
                         "risk_params":      row[4],
                         "backtest_summary": row[5],
-                        "created_at":       row[6].isoformat() if row[6] else None,
+                        "imported_at":      row[6].isoformat() if row[6] else None,
                     })
                 return {"strategies": strategies, "count": len(strategies)}
     except Exception as e:
