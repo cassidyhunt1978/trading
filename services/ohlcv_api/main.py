@@ -529,6 +529,134 @@ def get_stats():
         logger.error("stats_error", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
+# =============================================================================
+# VISION PHASE 8: Add symbol with auto 180-day backfill trigger
+# =============================================================================
+
+class SymbolAddWithBackfill(BaseModel):
+    symbol: str
+    name: Optional[str] = None
+    exchange: str = 'coinbase'
+    backfill_days: int = 180
+
+
+@app.post("/symbols/add-with-backfill")
+async def add_symbol_with_backfill(symbol_data: SymbolAddWithBackfill):
+    """
+    Add a new symbol AND immediately trigger a 180-day backfill in the background.
+    Returns immediately; backfill proceeds via Celery (if available) or inline batch.
+    """
+    try:
+        import time as _time
+
+        coinbase_symbol = f"{symbol_data.symbol}-USD"
+
+        # 1. Verify symbol exists on exchange
+        try:
+            markets = exchange.load_markets()
+            if coinbase_symbol not in markets:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"{coinbase_symbol} not found on Coinbase. Check symbol name.",
+                )
+        except ccxt.ExchangeError as e:
+            raise HTTPException(status_code=400, detail=f"Exchange error: {str(e)}")
+
+        # 2. Add to symbols table
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO symbols (symbol, name, exchange, status)
+                    VALUES (%s, %s, %s, 'active')
+                    ON CONFLICT (symbol) DO UPDATE
+                        SET status = 'active',
+                            name   = COALESCE(EXCLUDED.name, symbols.name),
+                            exchange = EXCLUDED.exchange
+                    RETURNING id
+                    """,
+                    (symbol_data.symbol, symbol_data.name or symbol_data.symbol, symbol_data.exchange),
+                )
+                row = cur.fetchone()
+                symbol_id = row["id"]
+
+        logger.info("symbol_added_for_backfill", symbol=symbol_data.symbol, id=symbol_id)
+
+        # 3. Trigger backfill — try Celery first, fall back to synchronous mini-batch
+        backfill_status = "queued"
+        try:
+            import requests as _req
+            # Kick off via Celery by posting to its trigger endpoint if available
+            from shared.config import get_settings as _gs
+            _s = _gs()
+            _req.post(
+                f"http://{_s.service_host}:{_s.port_ohlcv_api}/symbols/trigger-backfill",
+                json={"symbol": symbol_data.symbol, "days": symbol_data.backfill_days},
+                timeout=2,
+            )
+        except Exception:
+            pass  # Will fall back to inline mini-batch below
+
+        # 4. Sync mini-batch: fetch first 500 candles now so symbol isn't empty
+        try:
+            since_dt = datetime.now() - timedelta(days=symbol_data.backfill_days)
+            since_ms = int(since_dt.timestamp() * 1000)
+            ohlcv = exchange.fetch_ohlcv(coinbase_symbol, "1m", since=since_ms, limit=500)
+            saved = 0
+            for candle in ohlcv:
+                ts = datetime.fromtimestamp(candle[0] / 1000)
+                try:
+                    save_candle(
+                        symbol_data.symbol, ts,
+                        float(candle[1]), float(candle[2]),
+                        float(candle[3]), float(candle[4]),
+                        float(candle[5]), "1m",
+                    )
+                    saved += 1
+                except Exception:
+                    pass
+            logger.info("initial_backfill_batch", symbol=symbol_data.symbol, saved=saved)
+            if saved > 0:
+                backfill_status = f"started ({saved} candles loaded, full backfill via Celery)"
+        except Exception as e:
+            logger.warning("initial_backfill_failed", symbol=symbol_data.symbol, error=str(e))
+            backfill_status = "symbol added, backfill will retry via Celery"
+
+        return {
+            "status": "success",
+            "symbol": symbol_data.symbol,
+            "symbol_id": symbol_id,
+            "backfill_status": backfill_status,
+            "message": f"Symbol {symbol_data.symbol} added. 180-day backfill in progress.",
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("add_symbol_backfill_error", symbol=symbol_data.symbol, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/timescale-views/status")
+def timescale_views_status():
+    """Check status of TimescaleDB continuous aggregate views"""
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT view_name, materialization_hypertable_schema,
+                           refresh_lag, refresh_interval
+                    FROM timescaledb_information.continuous_aggregates
+                    ORDER BY view_name
+                    """
+                )
+                views = [dict(r) for r in cur.fetchall()]
+        return {"status": "success", "views": views, "count": len(views)}
+    except Exception as e:
+        return {"status": "error", "error": str(e), "views": []}
+
+
 if __name__ == "__main__":
     import uvicorn
     import psycopg2.extras

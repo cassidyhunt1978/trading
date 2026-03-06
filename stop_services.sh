@@ -36,6 +36,7 @@ stop_service "AfterAction  " logs/afteraction_api.pid
 stop_service "Testing API  " logs/testing_api.pid
 stop_service "Strategy Config" logs/strategy_config_api.pid
 stop_service "System Monitor" logs/system_monitor_api.pid
+stop_service "Ensemble API " logs/ensemble_api.pid
 stop_service "Web UI       " logs/ui.pid
 
 # Kill any remaining Python services (backup)

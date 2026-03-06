@@ -320,5 +320,4 @@ def get_trading_activity():
 
 if __name__ == "__main__":
     import uvicorn
-    # Use port 8021 for system monitor API
-    uvicorn.run("services.system_monitor_api.main:app", host="0.0.0.0", port=8021, workers=4)
+    uvicorn.run("services.system_monitor_api.main:app", host="0.0.0.0", port=settings.port_system_monitor_api, workers=4)

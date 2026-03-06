@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     
     # Redis
     redis_url: str = 'redis://127.0.0.1:6379/0'
+    port_redis: int = 6379
     
     # Service Communication (use 127.0.0.1 instead of localhost for consistency)
     service_host: str = '127.0.0.1'
@@ -51,6 +52,8 @@ class Settings(BaseSettings):
     port_afteraction_api: int = 8018
     port_testing_api: int = 8019
     port_strategy_config_api: int = 8020
+    port_system_monitor_api: int = 8021
+    port_ensemble_api: int = 8022  # Phase 8: Vision ensemble engine
     
     class Config:
         env_file = '.env'

@@ -1163,6 +1163,108 @@ def get_signal_evaluations(limit: int = 20):
         logger.error("evaluations_fetch_error", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
+
+# ─── Phase 8 Vision: Daily Allocation ───────────────────────────────────────
+
+class DailyAllocationRequest(BaseModel):
+    target_daily_pct: float = 0.005   # 0.5% daily target
+    kelly_min: float = 0.10           # floor: 10% of capital per trade
+    kelly_max: float = 0.25           # ceiling: 25% of capital per trade
+    max_open_positions: int = 5
+
+
+@app.post("/daily_allocation")
+def daily_allocation(req: DailyAllocationRequest):
+    """
+    Compute recommended position sizes for today using Kelly Criterion.
+
+    Kelly fraction = WR - (1 - WR) / RR  clamped to [kelly_min, kelly_max].
+    Returns per-symbol allocation based on ensemble-ranked strategies.
+    """
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                # Available capital
+                cur.execute("""
+                    SELECT available_capital, total_capital
+                    FROM portfolio_snapshots
+                    ORDER BY snapshot_time DESC LIMIT 1
+                """)
+                snap = cur.fetchone()
+                available = float(snap['available_capital']) if snap else settings.paper_starting_capital
+                total = float(snap['total_capital']) if snap else settings.paper_starting_capital
+
+                # Current open positions count
+                cur.execute("""
+                    SELECT COUNT(*) AS cnt FROM positions WHERE status = 'open'
+                """)
+                open_count = cur.fetchone()['cnt']
+
+                slots_available = max(0, req.max_open_positions - open_count)
+                if slots_available == 0:
+                    return {
+                        "status": "no_slots",
+                        "open_positions": open_count,
+                        "max_open_positions": req.max_open_positions,
+                        "allocations": [],
+                    }
+
+                # Top symbols by best trust_factor strategy
+                cur.execute("""
+                    SELECT ss.symbol,
+                           MAX(ss.trust_factor) AS best_trust,
+                           MAX(ss.profit_factor) AS best_pf,
+                           MAX(ss.win_rate)      AS best_wr
+                    FROM symbol_strategies ss
+                    WHERE ss.status = 'active'
+                      AND ss.trust_factor > 0.1
+                    GROUP BY ss.symbol
+                    ORDER BY best_trust DESC
+                    LIMIT %s
+                """, (slots_available,))
+                candidates = cur.fetchall()
+
+        allocations = []
+        for row in candidates:
+            symbol = row['symbol']
+            wr = float(row['best_wr'] or 50) / 100.0
+            pf = float(row['best_pf'] or 1.0)
+            # Reward-to-risk ratio derived from profit factor
+            rr = pf if pf > 0 else 1.0
+            # Kelly fraction
+            kelly = wr - (1.0 - wr) / rr
+            kelly = min(req.kelly_max, max(req.kelly_min, kelly))
+            position_capital = round(available * kelly, 2)
+
+            allocations.append({
+                "symbol": symbol,
+                "kelly_fraction": round(kelly, 4),
+                "position_capital": position_capital,
+                "win_rate_pct": round(wr * 100, 2),
+                "profit_factor": round(pf, 3),
+                "trust_factor": round(float(row['best_trust']), 4),
+            })
+
+        logger.info("daily_allocation_computed",
+                    slots=slots_available, available=available,
+                    symbols=[a['symbol'] for a in allocations])
+
+        return {
+            "status": "success",
+            "available_capital": available,
+            "total_capital": total,
+            "open_positions": open_count,
+            "slots_available": slots_available,
+            "target_daily_pct": req.target_daily_pct,
+            "allocations": allocations,
+            "computed_at": datetime.utcnow().isoformat(),
+        }
+
+    except Exception as e:
+        logger.error("daily_allocation_error", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("services.portfolio_api.main:app", host="0.0.0.0", port=settings.port_portfolio_api, workers=4)

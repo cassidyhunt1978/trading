@@ -4327,6 +4327,312 @@ def adjust_performance_goals_task():
     return adjust_performance_goals()
 
 
+# ==================== PHASE 8 VISION TASKS ====================
+
+@celery_app.task(name='discover_symbols_and_strategies')
+def discover_symbols_and_strategies():
+    """
+    Daily task: AI discovers new symbols + generates strategies for each.
+    1. Calls /discover-symbols-ai to find new trading candidates
+    2. Calls /symbols/add-with-backfill to backfill 180 days of history
+    3. Calls /generate-strategies to create strategies for each new symbol
+    4. Assigns all strategies to the new symbol via Ensemble API
+    """
+    try:
+        logger.info("task_started", task="discover_symbols_and_strategies")
+        ai_base = f"http://{settings.service_host}:{settings.port_ai_api}"
+        ohlcv_base = f"http://{settings.service_host}:{settings.port_ohlcv_api}"
+        ensemble_base = f"http://{settings.service_host}:{settings.port_ensemble_api}"
+
+        # Step 1: AI symbol discovery
+        resp = requests.post(f"{ai_base}/discover-symbols-ai",
+                             json={"min_volume_usd": 500_000, "max_results": 15},
+                             timeout=60)
+        if resp.status_code != 200:
+            logger.warning("discover_symbols_failed", status=resp.status_code)
+            return {"status": "error", "step": "discover"}
+
+        discovered = resp.json().get("symbols", [])
+        logger.info("symbols_discovered", count=len(discovered))
+
+        results = []
+        for sym_info in discovered:
+            symbol = sym_info.get("symbol") if isinstance(sym_info, dict) else sym_info
+            try:
+                # Step 2: Add symbol with 180-day backfill
+                add_resp = requests.post(
+                    f"{ohlcv_base}/symbols/add-with-backfill",
+                    json={"symbol": symbol, "name": symbol, "backfill_days": 180},
+                    timeout=30,
+                )
+                backfill_ok = add_resp.status_code == 200
+
+                # Step 3: Generate strategies
+                gen_resp = requests.post(
+                    f"{ai_base}/generate-strategies",
+                    json={"symbol": symbol, "num_strategies": 8},
+                    timeout=60,
+                )
+                strategies_ok = gen_resp.status_code == 200
+
+                # Step 4: Assign all strategies to new symbol
+                assign_resp = requests.post(
+                    f"{ensemble_base}/assign-all-strategies/{symbol}",
+                    timeout=30,
+                )
+                assign_ok = assign_resp.status_code == 200
+
+                results.append({
+                    "symbol": symbol,
+                    "backfill": backfill_ok,
+                    "strategies_generated": strategies_ok,
+                    "strategies_assigned": assign_ok,
+                })
+                logger.info("symbol_setup_complete", symbol=symbol,
+                            backfill=backfill_ok, strategies=strategies_ok)
+
+            except Exception as sym_err:
+                logger.warning("symbol_setup_error", symbol=symbol, error=str(sym_err))
+                results.append({"symbol": symbol, "error": str(sym_err)})
+
+        return {"status": "success", "discovered": len(discovered), "results": results}
+
+    except Exception as e:
+        logger.error("task_error", task="discover_symbols_and_strategies", error=str(e))
+        return {"status": "error", "message": str(e)}
+
+
+@celery_app.task(name='rank_strategies_per_symbol')
+def rank_strategies_per_symbol():
+    """
+    Every 4 hours: Recompute trust_factor rankings for all active symbols.
+    trust_factor = PF × (WR/100) × (1 - fee_drag)
+    """
+    try:
+        logger.info("task_started", task="rank_strategies_per_symbol")
+        ensemble_base = f"http://{settings.service_host}:{settings.port_ensemble_api}"
+
+        symbols = get_active_symbols()
+        updated = 0
+        for sym in symbols:
+            symbol = sym['symbol']
+            try:
+                resp = requests.post(f"{ensemble_base}/rerank/{symbol}", timeout=30)
+                if resp.status_code == 200:
+                    updated += 1
+            except Exception as sym_err:
+                logger.warning("rerank_symbol_error", symbol=symbol, error=str(sym_err))
+
+        logger.info("rank_strategies_complete", symbols_updated=updated)
+        return {"status": "success", "symbols_updated": updated}
+
+    except Exception as e:
+        logger.error("task_error", task="rank_strategies_per_symbol", error=str(e))
+        return {"status": "error", "message": str(e)}
+
+
+@celery_app.task(name='monitor_profitability')
+def monitor_profitability():
+    """
+    Daily task at 2:30 AM UTC: Evaluate yesterday's P&L, update streaks,
+    and trigger paper→live promotion or live→stop+reevaluate demotion.
+
+    Rules:
+    - profitable_days_streak >= days_to_promote → switch mode to 'live'
+    - unprofitable_days_streak >= days_to_demote → switch mode to 'paper' + trigger reevaluation
+    """
+    try:
+        logger.info("task_started", task="monitor_profitability")
+
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                # Yesterday's P&L summary
+                cur.execute("""
+                    SELECT COALESCE(SUM(realized_pnl), 0) AS total_pnl,
+                           COUNT(*) AS trade_count
+                    FROM positions
+                    WHERE DATE(closed_at) = CURRENT_DATE - INTERVAL '1 day'
+                      AND status = 'closed'
+                """)
+                row = cur.fetchone()
+                total_pnl = float(row['total_pnl'] or 0)
+                trade_count = int(row['trade_count'] or 0)
+
+                # Yesterday's capital base for pct calculation
+                cur.execute("""
+                    SELECT total_capital FROM portfolio_snapshots
+                    WHERE DATE(snapshot_time) = CURRENT_DATE - INTERVAL '1 day'
+                    ORDER BY snapshot_time DESC LIMIT 1
+                """)
+                snap = cur.fetchone()
+                capital = float(snap['total_capital']) if snap else settings.paper_starting_capital
+                total_pnl_pct = (total_pnl / capital * 100) if capital > 0 else 0.0
+                is_profitable = total_pnl > 0
+
+                # Log to daily_profitability_log
+                cur.execute("""
+                    SELECT mode FROM trading_mode_config
+                    ORDER BY updated_at DESC LIMIT 1
+                """)
+                mode_row = cur.fetchone()
+                current_mode = mode_row['mode'] if mode_row else 'paper'
+
+                cur.execute("""
+                    INSERT INTO daily_profitability_log
+                        (date, mode, total_pnl, total_pnl_pct, trades_count, winning_trades, is_profitable)
+                    SELECT
+                        CURRENT_DATE - INTERVAL '1 day',
+                        %s, %s, %s, %s,
+                        COUNT(*) FILTER (WHERE realized_pnl > 0),
+                        %s
+                    FROM positions
+                    WHERE DATE(closed_at) = CURRENT_DATE - INTERVAL '1 day'
+                      AND status = 'closed'
+                    ON CONFLICT (date, mode) DO UPDATE SET
+                        total_pnl      = EXCLUDED.total_pnl,
+                        total_pnl_pct  = EXCLUDED.total_pnl_pct,
+                        trades_count   = EXCLUDED.trades_count,
+                        winning_trades = EXCLUDED.winning_trades,
+                        is_profitable  = EXCLUDED.is_profitable
+                """, (current_mode, total_pnl, total_pnl_pct, trade_count, is_profitable))
+
+                # Update streaks in trading_mode_config
+                if is_profitable:
+                    cur.execute("""
+                        UPDATE trading_mode_config SET
+                            profitable_days_streak   = profitable_days_streak + 1,
+                            unprofitable_days_streak = 0,
+                            updated_at = NOW()
+                    """)
+                else:
+                    cur.execute("""
+                        UPDATE trading_mode_config SET
+                            unprofitable_days_streak = unprofitable_days_streak + 1,
+                            profitable_days_streak   = 0,
+                            updated_at = NOW()
+                    """)
+
+                # Read updated streaks + thresholds
+                cur.execute("""
+                    SELECT mode, profitable_days_streak, unprofitable_days_streak,
+                           days_to_promote, days_to_demote
+                    FROM trading_mode_config
+                    ORDER BY updated_at DESC LIMIT 1
+                """)
+                cfg = cur.fetchone()
+                conn.commit()
+
+        if not cfg:
+            return {"status": "no_config", "pnl": total_pnl}
+
+        mode = cfg['mode']
+        profit_streak = cfg['profitable_days_streak']
+        loss_streak = cfg['unprofitable_days_streak']
+        to_promote = cfg['days_to_promote']
+        to_demote = cfg['days_to_demote']
+        action = "none"
+
+        # Paper → Live promotion
+        if mode == 'paper' and profit_streak >= to_promote:
+            with get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        UPDATE trading_mode_config SET mode = 'live', updated_at = NOW()
+                    """)
+                    conn.commit()
+            action = "promoted_to_live"
+            logger.info("trading_mode_promoted", mode="live", streak=profit_streak)
+
+        # Live → Paper demotion + reevaluation trigger
+        elif mode == 'live' and loss_streak >= to_demote:
+            with get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        UPDATE trading_mode_config SET
+                            mode = 'paper',
+                            reevaluation_triggered = true,
+                            updated_at = NOW()
+                    """)
+                    conn.commit()
+            action = "demoted_to_paper_reevaluate"
+            # Also trigger reevaluate task immediately
+            reevaluate_strategies.delay()
+            logger.warning("trading_mode_demoted", mode="paper", streak=loss_streak)
+
+        logger.info("profitability_monitored",
+                    pnl=total_pnl, pnl_pct=total_pnl_pct,
+                    is_profitable=is_profitable, mode=mode, action=action)
+
+        return {
+            "status": "success",
+            "date": (datetime.utcnow() - timedelta(days=1)).date().isoformat(),
+            "total_pnl": total_pnl,
+            "total_pnl_pct": round(total_pnl_pct, 4),
+            "is_profitable": is_profitable,
+            "mode": mode,
+            "profit_streak": profit_streak,
+            "loss_streak": loss_streak,
+            "action": action,
+        }
+
+    except Exception as e:
+        logger.error("task_error", task="monitor_profitability", error=str(e))
+        return {"status": "error", "message": str(e)}
+
+
+@celery_app.task(name='reevaluate_strategies')
+def reevaluate_strategies():
+    """
+    Triggered when unprofitable streak hits threshold.
+    1. Deactivates symbol_strategies with trust_factor < 0.05 (bottom performers)
+    2. Requests fresh discovery of up to 10 new symbols
+    3. Resets reevaluation_triggered flag
+    """
+    try:
+        logger.info("task_started", task="reevaluate_strategies")
+        ai_base = f"http://{settings.service_host}:{settings.port_ai_api}"
+
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                # Deactivate worst performers
+                cur.execute("""
+                    UPDATE symbol_strategies
+                    SET status = 'inactive', updated_at = NOW()
+                    WHERE trust_factor < 0.05
+                      AND status = 'active'
+                """)
+                deactivated = cur.rowcount
+
+                # Clear reevaluation flag
+                cur.execute("""
+                    UPDATE trading_mode_config
+                    SET reevaluation_triggered = false, updated_at = NOW()
+                """)
+                conn.commit()
+
+        # Request fresh symbol discovery (smaller set for quick turnaround)
+        try:
+            resp = requests.post(f"{ai_base}/discover-symbols-ai",
+                                 json={"min_volume_usd": 300_000, "max_results": 10},
+                                 timeout=60)
+            discovery_ok = resp.status_code == 200
+        except Exception:
+            discovery_ok = False
+
+        logger.info("reevaluation_complete",
+                    deactivated=deactivated, discovery_ok=discovery_ok)
+
+        return {
+            "status": "success",
+            "strategies_deactivated": deactivated,
+            "fresh_discovery_triggered": discovery_ok,
+        }
+
+    except Exception as e:
+        logger.error("task_error", task="reevaluate_strategies", error=str(e))
+        return {"status": "error", "message": str(e)}
+
+
 # ==================== CELERY BEAT SCHEDULE ====================
 
 # Configure Celery Beat schedule (dynamic based on SYSTEM_MODE)
@@ -4519,6 +4825,26 @@ celery_app.conf.beat_schedule = {
     'adjust-performance-goals': {
         'task': 'adjust_performance_goals',
         'schedule': crontab(day_of_week=0, hour=3, minute=0),  # Weekly Sunday 3 AM
+    },
+
+    # ===== PHASE 8 VISION TASKS =====
+
+    # AI symbol + strategy discovery: daily at 6 AM UTC
+    'discover-symbols-strategies': {
+        'task': 'discover_symbols_and_strategies',
+        'schedule': crontab(hour=6, minute=0),
+    },
+
+    # Re-rank strategies by trust_factor every 4 hours
+    'rank-strategies-per-symbol': {
+        'task': 'rank_strategies_per_symbol',
+        'schedule': 14400.0,  # Every 4 hours
+    },
+
+    # Monitor daily profitability at 2:30 AM UTC (after reset-daily-stats at 7 AM)
+    'monitor-profitability': {
+        'task': 'monitor_profitability',
+        'schedule': crontab(hour=2, minute=30),
     },
 }
 

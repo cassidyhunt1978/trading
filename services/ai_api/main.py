@@ -1258,6 +1258,705 @@ Return ONLY JSON:
         logger.error("guardrail_adjustment_error", error=str(e))
         return {"action": "hold", "reasoning": f"Error: {str(e)[:50]}"}
 
+# =============================================================================
+# VISION PHASE 8: AI Symbol & Strategy Discovery
+# =============================================================================
+
+import ccxt
+import json as _json
+
+class SymbolDiscoveryRequest(BaseModel):
+    min_volume_usd: float = 500_000
+    max_results: int = 15
+    exchanges: Optional[List[str]] = None
+
+class StrategyGenerationRequest(BaseModel):
+    symbol: str
+    num_strategies: int = 8
+    timeframe: str = "1m"
+    recent_regime: Optional[str] = None
+
+class EnsembleWeightRequest(BaseModel):
+    symbol: str
+    signal_type: str           # BUY or SELL
+    trust_factor: float
+    profit_factor: float
+    win_rate: float
+    strategy_name: str
+    market_regime: Optional[str] = "unknown"
+    recent_candles_summary: Optional[str] = None
+
+
+@app.post("/discover-symbols-ai")
+def discover_symbols_ai(req: SymbolDiscoveryRequest):
+    """
+    Fetch top Coinbase markets by volume, then ask Claude to select the best
+    candidates for small-account breakout/momentum trading.
+    Saves results to discovered_symbols_queue.
+    """
+    try:
+        exchange = ccxt.coinbase({'enableRateLimit': True})
+        tickers = exchange.fetch_tickers()
+
+        # Filter USDC or USD pairs above volume threshold
+        candidates = []
+        for symbol, data in tickers.items():
+            if not symbol.endswith('/USDC') and not symbol.endswith('/USD'):
+                continue
+            vol_usd = float(data.get('quoteVolume') or 0)
+            if vol_usd >= req.min_volume_usd:
+                base = symbol.split('/')[0]
+                candidates.append({
+                    'symbol': base,
+                    'exchange_pair': symbol,
+                    'volume_usd': vol_usd,
+                    'last_price': float(data.get('last') or 0),
+                    'change_pct': float(data.get('percentage') or 0),
+                })
+
+        candidates.sort(key=lambda x: x['volume_usd'], reverse=True)
+
+        # Remove symbols already in DB
+        existing_symbols = set()
+        try:
+            with get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT symbol FROM symbols WHERE status = 'active'")
+                    existing_symbols = {r['symbol'] for r in cur.fetchall()}
+        except Exception:
+            pass
+
+        new_candidates = [c for c in candidates if c['symbol'] not in existing_symbols]
+        top30 = new_candidates[:30]
+
+        selected = []
+        if anthropic_client and top30:
+            prompt = f"""You are a crypto trading advisor for a small account ($100-$500).
+Given these Coinbase markets by 24h volume, select the BEST 10-15 for breakout/momentum trading.
+
+Criteria: high liquidity, clear trends, good volatility for short-timeframe strategies,
+avoid stablecoins, avoid extremely low-cap or scam coins.
+
+Markets (symbol, 24h_vol_usd, price, 24h_change%):
+{_json.dumps([{'symbol': c['symbol'], 'volume_usd': int(c['volume_usd']), 'price': c['last_price'], 'change_pct': round(c['change_pct'],2)} for c in top30], indent=2)}
+
+Return ONLY a JSON array of selected symbols with reason:
+[{{"symbol": "BTC", "reason": "High liquidity, clear trends"}}, ...]
+Select between {min(10, len(top30))} and {min(15, len(top30))} symbols."""
+
+            try:
+                response = anthropic_client.messages.create(
+                    model="claude-3-haiku-20240307",
+                    max_tokens=800,
+                    messages=[{"role": "user", "content": prompt}]
+                )
+                ai_text = response.content[0].text.strip()
+                if "```" in ai_text:
+                    ai_text = ai_text.split("```")[1].replace("json", "").strip()
+                selected = _json.loads(ai_text)
+            except Exception as ai_err:
+                logger.warning("ai_discovery_fallback", error=str(ai_err))
+                # Fallback: top 15 by volume
+                selected = [{'symbol': c['symbol'], 'reason': 'top_volume'} for c in top30[:15]]
+        else:
+            selected = [{'symbol': c['symbol'], 'reason': 'top_volume'} for c in top30[:req.max_results]]
+
+        # Persist to discovered_symbols_queue
+        saved = 0
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                for item in selected:
+                    sym = item.get('symbol', '')
+                    if not sym:
+                        continue
+                    cur.execute("""
+                        INSERT INTO discovered_symbols_queue
+                            (symbol, exchange, discovery_source, discovery_reason,
+                             confidence_score, status)
+                        VALUES (%s, 'coinbase', 'ai_volume_scan', %s, 0.8, 'pending')
+                        ON CONFLICT (symbol) DO UPDATE SET
+                            discovery_reason = EXCLUDED.discovery_reason,
+                            status = 'pending',
+                            updated_at = NOW()
+                    """, (sym, item.get('reason', '')))
+                    saved += 1
+                conn.commit()
+
+        logger.info("symbol_discovery_complete", candidates=len(top30), selected=len(selected), saved=saved)
+        return {"status": "success", "discovered": saved, "symbols": selected}
+
+    except Exception as e:
+        logger.error("discover_symbols_error", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/generate-strategies")
+def generate_strategies(req: StrategyGenerationRequest):
+    """
+    Use Claude to generate N diverse strategies for a symbol, then save them
+    to strategies table and link them in symbol_strategies.
+    """
+    try:
+        # Get some price context
+        price_context = ""
+        try:
+            with get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT close, timestamp FROM ohlcv_candles
+                        WHERE symbol = %s
+                        ORDER BY timestamp DESC LIMIT 5
+                    """, (req.symbol,))
+                    rows = cur.fetchall()
+                    if rows:
+                        prices = [float(r['close']) for r in rows]
+                        price_context = f"Recent prices: {prices}"
+        except Exception:
+            pass
+
+        strategies = []
+        if anthropic_client:
+            prompt = f"""Generate {req.num_strategies} diverse crypto trading strategies for {req.symbol} on {req.timeframe} candles.
+{price_context}
+Market regime: {req.recent_regime or 'unknown'}
+
+Each strategy should use different indicator combinations (RSI, MACD, Bollinger Bands, EMA/SMA crossovers, VWAP, ATR).
+Make them suitable for small-account momentum/breakout trading.
+
+Return ONLY a JSON array:
+[{{
+  "name": "RSI Momentum",
+  "description": "Buy oversold RSI bounces",
+  "entry_logic": "RSI(14) < 30 AND price > EMA(20)",
+  "exit_logic": "RSI > 60 OR stop_loss hit",
+  "indicator_logic": {{"rsi_period": 14, "rsi_oversold": 30, "ema_period": 20}},
+  "stop_loss_pct": 2.0,
+  "take_profit_pct": 4.0,
+  "timeframe": "{req.timeframe}"
+}}]"""
+            try:
+                response = anthropic_client.messages.create(
+                    model="claude-3-haiku-20240307",
+                    max_tokens=2000,
+                    messages=[{"role": "user", "content": prompt}]
+                )
+                ai_text = response.content[0].text.strip()
+                if "```" in ai_text:
+                    ai_text = ai_text.split("```")[1].replace("json", "").strip()
+                strategies = _json.loads(ai_text)
+            except Exception as ai_err:
+                logger.warning("ai_strategy_gen_fallback", error=str(ai_err))
+
+        saved_ids = []
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                for strat in strategies:
+                    name = strat.get('name', f'{req.symbol}_AI_Strategy')
+                    cur.execute("""
+                        INSERT INTO strategies
+                            (name, description, entry_logic, exit_logic,
+                             parameters, stop_loss_pct, take_profit_pct,
+                             timeframe, enabled, created_by)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, true, 'ai_generated')
+                        ON CONFLICT (name) DO UPDATE SET
+                            description = EXCLUDED.description,
+                            parameters = EXCLUDED.parameters,
+                            updated_at = NOW()
+                        RETURNING id
+                    """, (
+                        name,
+                        strat.get('description', ''),
+                        strat.get('entry_logic', ''),
+                        strat.get('exit_logic', ''),
+                        _json.dumps(strat.get('indicator_logic', {})),
+                        float(strat.get('stop_loss_pct', 2.0)),
+                        float(strat.get('take_profit_pct', 4.0)),
+                        req.timeframe,
+                    ))
+                    row = cur.fetchone()
+                    if row:
+                        strategy_id = row['id']
+                        saved_ids.append(strategy_id)
+                        # Link to symbol_strategies
+                        cur.execute("""
+                            INSERT INTO symbol_strategies
+                                (symbol, strategy_id, trust_factor, profit_factor,
+                                 win_rate, total_trades, fee_drag_pct, status)
+                            VALUES (%s, %s, 0.0, 1.0, 0.0, 0, 0.001, 'active')
+                            ON CONFLICT (symbol, strategy_id) DO NOTHING
+                        """, (req.symbol, strategy_id))
+                conn.commit()
+
+        logger.info("strategies_generated", symbol=req.symbol, count=len(saved_ids))
+        return {"status": "success", "symbol": req.symbol, "strategies_created": len(saved_ids), "strategy_ids": saved_ids}
+
+    except Exception as e:
+        logger.error("generate_strategies_error", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/weigh-ensemble-signal")
+def weigh_ensemble_signal(req: EnsembleWeightRequest):
+    """
+    Ask Claude to adjust the vote weight (0.0–2.0) for a single ensemble signal
+    based on market regime, strategy trust, and current conditions.
+    Falls back to 1.0 if AI is unavailable.
+    """
+    adjusted_weight = 1.0
+    reasoning = "default"
+
+    if anthropic_client:
+        try:
+            prompt = f"""You are a crypto risk manager reviewing a trading signal for ensemble voting.
+
+Signal details:
+- Symbol: {req.symbol}
+- Direction: {req.signal_type}
+- Strategy trust factor: {req.trust_factor:.3f} (0=untrusted, 1=excellent)
+- Profit factor: {req.profit_factor:.2f}
+- Win rate: {req.win_rate:.1f}%
+- Strategy: {req.strategy_name}
+- Market regime: {req.market_regime}
+- Context: {req.recent_candles_summary or 'N/A'}
+
+Adjust the vote weight from 0.0 (ignore) to 2.0 (double weight).
+1.0 = neutral. High trust + aligned regime = higher weight. Low trust or counter-trend = lower.
+
+Return ONLY JSON: {{"adjusted_weight": 1.2, "reasoning": "Brief reason"}}"""
+
+            response = anthropic_client.messages.create(
+                model="claude-3-haiku-20240307",
+                max_tokens=150,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            ai_text = response.content[0].text.strip()
+            if "```" in ai_text:
+                ai_text = ai_text.split("```")[1].replace("json", "").strip()
+            result = _json.loads(ai_text)
+            adjusted_weight = float(result.get("adjusted_weight", 1.0))
+            adjusted_weight = min(2.0, max(0.0, adjusted_weight))
+            reasoning = result.get("reasoning", "")
+        except Exception as e:
+            logger.warning("weigh_signal_fallback", error=str(e))
+
+    return {
+        "symbol": req.symbol,
+        "signal_type": req.signal_type,
+        "adjusted_weight": adjusted_weight,
+        "reasoning": reasoning,
+    }
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("services.ai_api.main:app", host="0.0.0.0", port=settings.port_ai_api, workers=4)
+
+class SymbolDiscoveryRequest(BaseModel):
+    min_volume_usd: float = 500_000
+    max_results: int = 15
+    exchanges: Optional[List[str]] = None
+
+class StrategyGenerationRequest(BaseModel):
+    symbol: str
+    num_strategies: int = 8
+    timeframe: str = "1m"
+    recent_regime: Optional[str] = None  # trending_up, trending_down, ranging, volatile
+
+class EnsembleWeightRequest(BaseModel):
+    symbol: str
+    signal_type: str            # BUY or SELL
+    trust_factor: float         # pre-computed trust factor 0-1
+    profit_factor: float
+    win_rate: float
+    strategy_name: str
+    market_regime: Optional[str] = None
+    recent_candles_summary: Optional[Dict] = None  # {trend, volatility, rsi}
+
+
+@app.post("/discover-symbols-ai")
+async def discover_symbols_ai(request: SymbolDiscoveryRequest):
+    """
+    Scan exchange markets + ask AI to rank best crypto symbols for breakout trading.
+    Returns symbols not already in DB, sorted by AI-assessed potential.
+    """
+    try:
+        import ccxt
+
+        logger.info("symbol_discovery_started", min_volume=request.min_volume_usd)
+
+        # 1. Pull top markets from Coinbase by volume
+        exchange = ccxt.coinbase({"enableRateLimit": True})
+        markets = exchange.fetch_tickers()
+
+        # Filter USD pairs with sufficient volume
+        candidates = []
+        for ticker_id, ticker in markets.items():
+            if not ticker_id.endswith("/USD"):
+                continue
+            vol_usd = float(ticker.get("quoteVolume") or 0)
+            if vol_usd < request.min_volume_usd:
+                continue
+            symbol = ticker_id.replace("/USD", "")
+            candidates.append({
+                "symbol": symbol,
+                "price": float(ticker.get("last") or 0),
+                "volume_usd_24h": round(vol_usd, 0),
+                "change_pct_24h": round(float(ticker.get("percentage") or 0), 2),
+            })
+
+        # Sort by volume, take top 50 to send to AI
+        candidates.sort(key=lambda x: x["volume_usd_24h"], reverse=True)
+        top_candidates = candidates[:50]
+
+        # 2. Get already-tracked symbols from DB
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT symbol FROM symbols WHERE status = 'active'")
+                existing = {row["symbol"] for row in cur.fetchall()}
+
+        new_candidates = [c for c in top_candidates if c["symbol"] not in existing]
+
+        if not new_candidates:
+            return {
+                "status": "success",
+                "message": "All top symbols already tracked",
+                "discovered": [],
+            }
+
+        # 3. Ask AI to select the best for small-account breakout/momentum trading
+        if anthropic_client:
+            cand_list = "\n".join(
+                f"- {c['symbol']}: price=${c['price']}, vol_24h=${c['volume_usd_24h']:,.0f}, "
+                f"chg={c['change_pct_24h']:+.1f}%"
+                for c in new_candidates[:30]
+            )
+            prompt = f"""You are a crypto trading specialist focused on SMALL ACCOUNT COMPOUNDING ($100 start).
+
+Select the best 10-{request.max_results} symbols from this candidate list for breakout/momentum paper trading.
+
+Criteria:
+1. High liquidity (volume > $5M/day) — need to fill orders cleanly
+2. Clear momentum or breakout potential (large % moves, trending)
+3. Good for short-term 1m-15m scalp strategies
+4. Avoid stablecoins, wrapped tokens, and extremely low-cap meme coins
+5. Prefer assets with recognizable fundamental backing
+
+Candidates (not yet tracked):
+{cand_list}
+
+Return ONLY a JSON array, no commentary:
+[
+  {{"symbol": "BTC", "reason": "...", "priority": 1, "strategy_types": ["breakout","momentum"]}},
+  ...
+]"""
+
+            resp = anthropic_client.messages.create(
+                model="claude-3-haiku-20240307",
+                max_tokens=1500,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            ai_text = resp.content[0].text.strip()
+            if "```" in ai_text:
+                ai_text = ai_text.split("```")[1].replace("json", "").strip()
+
+            import json as _json
+            ai_picks = _json.loads(ai_text)
+
+            # Merge AI reasoning with market data
+            symbol_map = {c["symbol"]: c for c in new_candidates}
+            discovered = []
+            for pick in ai_picks[: request.max_results]:
+                sym = pick.get("symbol", "")
+                market_data = symbol_map.get(sym, {})
+                discovered.append({
+                    **market_data,
+                    "ai_reason": pick.get("reason", ""),
+                    "ai_priority": pick.get("priority", 99),
+                    "strategy_types": pick.get("strategy_types", []),
+                })
+        else:
+            # No AI — return top by volume
+            discovered = [
+                {**c, "ai_reason": "High volume detected", "ai_priority": i + 1, "strategy_types": []}
+                for i, c in enumerate(new_candidates[: request.max_results])
+            ]
+
+        # 4. Insert into discovered_symbols_queue
+        added_to_queue = 0
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                for d in discovered:
+                    try:
+                        cur.execute(
+                            """
+                            INSERT INTO discovered_symbols_queue
+                                (symbol, exchange, discovery_source, discovery_reason,
+                                 confidence_score, status)
+                            VALUES (%s, 'coinbase', 'ai_market_scan', %s, %s, 'pending')
+                            ON CONFLICT (symbol) DO NOTHING
+                            """,
+                            (d["symbol"], d.get("ai_reason", ""), d.get("ai_priority", 50)),
+                        )
+                        added_to_queue += cur.rowcount
+                    except Exception:
+                        pass
+
+        logger.info(
+            "symbol_discovery_complete",
+            discovered=len(discovered),
+            queued=added_to_queue,
+        )
+        return {
+            "status": "success",
+            "discovered": discovered,
+            "queued_for_onboarding": added_to_queue,
+        }
+
+    except Exception as e:
+        logger.error("symbol_discovery_error", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/generate-strategies")
+async def generate_strategies_for_symbol(request: StrategyGenerationRequest):
+    """
+    Use AI to generate 5-10 diverse trading strategies for a symbol.
+    Each strategy includes indicator logic, parameters, and risk rules.
+    Stores strategies in DB and assigns them to the symbol in symbol_strategies.
+    """
+    if not anthropic_client:
+        raise HTTPException(status_code=503, detail="AI not available (missing API key)")
+
+    try:
+        # Get recent price context
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT close, high, low, volume, indicators
+                    FROM ohlcv_candles
+                    WHERE symbol = %s
+                    ORDER BY timestamp DESC
+                    LIMIT 50
+                    """,
+                    (request.symbol,),
+                )
+                candles = [dict(r) for r in cur.fetchall()]
+
+        price_ctx = ""
+        if candles:
+            prices = [float(c["close"]) for c in candles]
+            price_ctx = (
+                f"Current: ${prices[0]:.4f}, "
+                f"5-candle avg: ${sum(prices[:5])/5:.4f}, "
+                f"Trend: {'+' if prices[0] > prices[-1] else '-'}"
+                f"{abs((prices[0]-prices[-1])/prices[-1]*100):.2f}%"
+            )
+
+        prompt = f"""You are an expert quant trader. Generate {request.num_strategies} distinct trading strategies
+for {request.symbol} on a {request.timeframe} timeframe. Target: small-account ($100-$1000) compounding.
+
+Market context: {price_ctx or 'No data yet'}
+Detected regime: {request.recent_regime or 'unknown'}
+
+Requirements per strategy:
+1. Use ONLY these indicators: RSI, MACD, Bollinger Bands, EMA, SMA, VWAP, Volume
+2. Specify exact parameters (e.g., RSI period=14, oversold=30)
+3. Clear entry/exit logic (e.g., "RSI crosses above 30 AND price > VWAP")
+4. Stop-loss 1-3%, take-profit 3-10% (short timeframe scalping)
+5. Strategies must be DIVERSE — different indicator combinations
+
+Return ONLY a JSON array:
+[
+  {{
+    "name": "RSI Mean Reversion 14",
+    "description": "Buy oversold RSI bounces at VWAP support",
+    "indicator_logic": {{
+      "entry": "RSI_14 < 30 AND close > VWAP AND volume > vol_sma_20",
+      "exit": "RSI_14 > 60 OR stop_loss OR take_profit"
+    }},
+    "parameters": {{"rsi_period": 14, "oversold": 30, "overbought": 60, "vwap_period": 20}},
+    "risk_management": {{"stop_loss_pct": 2.0, "take_profit_pct": 6.0, "max_hold_minutes": 120}},
+    "strategy_type": "mean_reversion"
+  }},
+  ...
+]"""
+
+        resp = anthropic_client.messages.create(
+            model="claude-3-haiku-20240307",
+            max_tokens=3000,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        ai_text = resp.content[0].text.strip()
+        if "```" in ai_text:
+            ai_text = ai_text.split("```")[1].replace("json", "").strip()
+
+        import json as _json
+        strategies_raw = _json.loads(ai_text)
+
+        created = []
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                for s in strategies_raw:
+                    # Insert into strategies table
+                    cur.execute(
+                        """
+                        INSERT INTO strategies
+                            (name, description, indicator_logic, parameters,
+                             risk_management, created_by, enabled)
+                        VALUES (%s, %s, %s, %s, %s, 'AI_DISCOVERY', true)
+                        ON CONFLICT DO NOTHING
+                        RETURNING id
+                        """,
+                        (
+                            s.get("name", "AI Strategy"),
+                            s.get("description", ""),
+                            _json.dumps(s.get("indicator_logic", {})),
+                            _json.dumps(s.get("parameters", {})),
+                            _json.dumps(s.get("risk_management", {})),
+                        ),
+                    )
+                    row = cur.fetchone()
+                    if not row:
+                        # Strategy name already exists — fetch existing id
+                        cur.execute(
+                            "SELECT id FROM strategies WHERE name = %s",
+                            (s.get("name"),),
+                        )
+                        row = cur.fetchone()
+
+                    if row:
+                        strategy_id = row["id"]
+                        # Assign to symbol in symbol_strategies
+                        cur.execute(
+                            """
+                            INSERT INTO symbol_strategies (symbol, strategy_id, status)
+                            VALUES (%s, %s, 'active')
+                            ON CONFLICT (symbol, strategy_id) DO NOTHING
+                            """,
+                            (request.symbol, strategy_id),
+                        )
+                        created.append({"strategy_id": strategy_id, "name": s.get("name")})
+
+        logger.info(
+            "strategies_generated",
+            symbol=request.symbol,
+            count=len(created),
+        )
+        return {
+            "status": "success",
+            "symbol": request.symbol,
+            "strategies_created": len(created),
+            "strategies": created,
+        }
+
+    except Exception as e:
+        logger.error("strategy_generation_error", symbol=request.symbol, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/weigh-ensemble-signal")
+async def weigh_ensemble_signal(request: EnsembleWeightRequest):
+    """
+    AI weighs a single signal from a trusted strategy for ensemble voting.
+    Returns an adjusted vote weight between 0.0 and 2.0.
+    - < 1.0: AI is skeptical, reduce influence
+    - 1.0: neutral
+    - > 1.0: AI is bullish on this signal, increase influence
+    """
+    if not anthropic_client:
+        # Return neutral weight if AI unavailable
+        return {
+            "status": "success",
+            "adjusted_weight": 1.0,
+            "confidence": 50,
+            "reasoning": "AI not available — neutral weight applied",
+            "ai_enabled": False,
+        }
+
+    try:
+        regime_ctx = request.market_regime or "unknown"
+        candle_ctx = ""
+        if request.recent_candles_summary:
+            s = request.recent_candles_summary
+            candle_ctx = (
+                f"Trend: {s.get('trend', 'n/a')}, "
+                f"Volatility: {s.get('volatility', 'n/a')}, "
+                f"RSI: {s.get('rsi', 'n/a')}"
+            )
+
+        prompt = f"""You are a professional trading risk manager for a small-account crypto system.
+
+A trusted strategy is requesting a {request.signal_type} trade on {request.symbol}.
+
+Strategy stats:
+- Name: {request.strategy_name}
+- Trust Factor: {request.trust_factor:.4f} (PF × WR × (1-fee_drag))
+- Profit Factor: {request.profit_factor:.2f}
+- Win Rate: {request.win_rate:.1f}%
+
+Market context:
+- Regime: {regime_ctx}
+- {candle_ctx}
+
+Your job: Return an ADJUSTED WEIGHT multiplier (0.0-2.0) for this signal's vote in the ensemble.
+
+Rules:
+- 0.0-0.5: Override signal (AI strongly disagrees)
+- 0.5-0.9: Reduce weight (AI is cautious)
+- 1.0: Neutral (let trust factor speak)
+- 1.1-1.5: Boost weight (AI agrees, conditions are good)
+- 1.5-2.0: Strong boost (exceptional conditions align)
+
+Consider:
+1. Does the market regime SUPPORT this signal type?
+   (trending_up favors BUY; trending_down favors SELL; ranging→caution)
+2. Is the trust factor high enough (>0.5 = reliable)?
+3. Are volatility conditions safe for a small account?
+
+Return ONLY JSON:
+{{"adjusted_weight": 1.2, "confidence": 75, "reasoning": "Brief 1-sentence reason"}}"""
+
+        resp = anthropic_client.messages.create(
+            model="claude-3-haiku-20240307",
+            max_tokens=200,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        ai_text = resp.content[0].text.strip()
+        if "```" in ai_text:
+            ai_text = ai_text.split("```")[1].replace("json", "").strip()
+
+        import json as _json
+        result = _json.loads(ai_text)
+
+        weight = float(result.get("adjusted_weight", 1.0))
+        weight = max(0.0, min(2.0, weight))  # clamp 0-2
+
+        logger.info(
+            "ensemble_signal_weighed",
+            symbol=request.symbol,
+            signal=request.signal_type,
+            weight=weight,
+            confidence=result.get("confidence"),
+        )
+        return {
+            "status": "success",
+            "adjusted_weight": weight,
+            "confidence": result.get("confidence", 50),
+            "reasoning": result.get("reasoning", ""),
+            "ai_enabled": True,
+        }
+
+    except Exception as e:
+        logger.error("ensemble_weight_error", symbol=request.symbol, error=str(e))
+        return {
+            "status": "fallback",
+            "adjusted_weight": 1.0,
+            "confidence": 50,
+            "reasoning": f"Error: {str(e)[:50]}",
+            "ai_enabled": True,
+        }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("services.ai_api.main:app", host="0.0.0.0", port=settings.port_ai_api, workers=4)

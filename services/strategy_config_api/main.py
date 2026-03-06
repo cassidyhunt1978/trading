@@ -1411,6 +1411,156 @@ def get_strategy_performance(
         logger.error("get_performance_error", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
+
+# ─── Phase 8 Vision: Chart Component Strategy Import ────────────────────────
+
+class ChartsStrategyImport(BaseModel):
+    source_file: str
+    strategy_name: str
+    entry_rules: Dict[str, Any]
+    exit_rules: Dict[str, Any]
+    risk_params: Dict[str, Any]
+    backtest_summary: Optional[Dict[str, Any]] = None  # {pf, wr, trades, ...}
+
+
+@app.post("/import_charts_strategy")
+def import_charts_strategy(payload: ChartsStrategyImport):
+    """
+    Accept a strategy exported from a chart component as JSON and:
+    1. Insert into charts_strategies staging table (idempotent on strategy_name)
+    2. Upsert into strategies table so it becomes tradeable
+    3. Assign to all active symbols via symbol_strategies
+    Returns the created/updated strategy_id.
+    """
+    import json as _json
+
+    pf = float((payload.backtest_summary or {}).get('pf', 1.0))
+    wr = float((payload.backtest_summary or {}).get('wr', 0.0))
+
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                # 1. Upsert into charts_strategies staging table
+                cur.execute("""
+                    INSERT INTO charts_strategies
+                        (source_file, strategy_name, entry_rules, exit_rules,
+                         risk_params, backtest_summary, profit_factor, win_rate)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (strategy_name) DO UPDATE SET
+                        source_file     = EXCLUDED.source_file,
+                        entry_rules     = EXCLUDED.entry_rules,
+                        exit_rules      = EXCLUDED.exit_rules,
+                        risk_params     = EXCLUDED.risk_params,
+                        backtest_summary = EXCLUDED.backtest_summary,
+                        profit_factor   = EXCLUDED.profit_factor,
+                        win_rate        = EXCLUDED.win_rate,
+                        updated_at      = NOW()
+                    RETURNING id, strategy_id
+                """, (
+                    payload.source_file,
+                    payload.strategy_name,
+                    _json.dumps(payload.entry_rules),
+                    _json.dumps(payload.exit_rules),
+                    _json.dumps(payload.risk_params),
+                    _json.dumps(payload.backtest_summary or {}),
+                    pf, wr,
+                ))
+                charts_row = cur.fetchone()
+                charts_id = charts_row['id']
+                existing_strategy_id = charts_row['strategy_id']
+
+                # Build indicator_logic from entry+exit rules for strategies table
+                indicator_logic = _json.dumps({
+                    "entry": payload.entry_rules,
+                    "exit": payload.exit_rules,
+                    "risk": payload.risk_params,
+                    "source": "charts_import",
+                })
+
+                # 2. Upsert into strategies table
+                if existing_strategy_id:
+                    cur.execute("""
+                        UPDATE strategies SET
+                            name = %s,
+                            indicator_logic = %s,
+                            enabled = true,
+                            updated_at = NOW()
+                        WHERE id = %s
+                        RETURNING id
+                    """, (payload.strategy_name, indicator_logic, existing_strategy_id))
+                    strategy_id = cur.fetchone()['id']
+                else:
+                    cur.execute("""
+                        INSERT INTO strategies
+                            (name, description, indicator_logic, enabled, created_at)
+                        VALUES (%s, %s, %s, true, NOW())
+                        ON CONFLICT (name) DO UPDATE SET
+                            indicator_logic = EXCLUDED.indicator_logic,
+                            enabled = true,
+                            updated_at = NOW()
+                        RETURNING id
+                    """, (
+                        payload.strategy_name,
+                        f"Imported from charts: {payload.source_file}",
+                        indicator_logic,
+                    ))
+                    strategy_id = cur.fetchone()['id']
+                    # Link back to charts_strategies
+                    cur.execute("""
+                        UPDATE charts_strategies SET strategy_id = %s WHERE id = %s
+                    """, (strategy_id, charts_id))
+
+                # 3. Assign to all active symbols
+                cur.execute("""
+                    SELECT symbol FROM symbols WHERE status = 'active'
+                """)
+                active_symbols = [r['symbol'] for r in cur.fetchall()]
+
+                fee_drag = 0.001
+                trust = pf * (wr / 100.0) * (1.0 - fee_drag)
+
+                assigned_count = 0
+                for sym in active_symbols:
+                    cur.execute("""
+                        INSERT INTO symbol_strategies
+                            (symbol, strategy_id, trust_factor, profit_factor,
+                             win_rate, total_trades, fee_drag_pct, status)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, 'active')
+                        ON CONFLICT (symbol, strategy_id) DO UPDATE SET
+                            trust_factor  = EXCLUDED.trust_factor,
+                            profit_factor = EXCLUDED.profit_factor,
+                            win_rate      = EXCLUDED.win_rate,
+                            updated_at    = NOW()
+                    """, (
+                        sym, strategy_id, round(trust, 6), pf, wr,
+                        int((payload.backtest_summary or {}).get('trades', 0)),
+                        fee_drag,
+                    ))
+                    assigned_count += 1
+
+                conn.commit()
+
+        logger.info("charts_strategy_imported",
+                    strategy_name=payload.strategy_name,
+                    strategy_id=strategy_id,
+                    symbols_assigned=assigned_count)
+
+        return {
+            "status": "success",
+            "strategy_id": strategy_id,
+            "strategy_name": payload.strategy_name,
+            "charts_id": charts_id,
+            "symbols_assigned": assigned_count,
+            "trust_factor": round(trust, 4),
+            "profit_factor": pf,
+            "win_rate_pct": wr,
+        }
+
+    except Exception as e:
+        logger.error("import_charts_strategy_error", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 if __name__ == "__main__":
     import uvicorn
     port = 8020  # New port for Strategy Config API
