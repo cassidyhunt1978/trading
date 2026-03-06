@@ -268,7 +268,7 @@ def compute_indicators():
         results = []
         
         # List of indicators to compute
-        indicators_list = ['rsi', 'macd', 'bbands', 'sma', 'ema', 'vwap']
+        indicators_list = ['rsi', 'macd', 'bbands', 'sma', 'ema', 'vwap', 'adx', 'atr']
         
         for symbol in symbols:
             symbol_success = True

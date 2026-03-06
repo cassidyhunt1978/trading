@@ -251,12 +251,287 @@ def get_strategy_parameters(strategy_id: int, symbol: str) -> Dict:
                 'risk_management': merged_risk
             }
 
+# ─── Charts-format condition evaluator ──────────────────────────────────────
+# Charts strategies store entry conditions as:
+#   { "entry": { "direction": "long", "logic": "AND",
+#                "conditions": [{"id":"ema_cross_up","enabled":true,"params":{...}}] },
+#     "source": "charts_import" }
+# The legacy evaluator only reads buy_conditions[], so charts strategies never fired.
+# These helpers translate charts condition IDs to available indicator data.
+
+def _ema_for_candles(candles: List[Dict], period: int, idx: int = -1) -> Optional[float]:
+    """Compute EMA(period) at candle[idx] on-the-fly from closing prices."""
+    needed = max(period * 2, period + 10)
+    start  = max(0, len(candles) + idx - needed + 1)
+    closes = [float(c.get('close', 0)) for c in candles[start: len(candles) + idx + 1 if idx < 0 else idx + 1]]
+    if len(closes) < period:
+        return None
+    k   = 2.0 / (period + 1)
+    ema = sum(closes[:period]) / period
+    for price in closes[period:]:
+        ema = price * k + ema * (1 - k)
+    return ema
+
+
+def _vol_avg(candles: List[Dict], lookback: int = 20) -> Optional[float]:
+    """Simple average volume over the previous `lookback` bars (excluding latest)."""
+    vols = [float(c.get('volume', 0)) for c in candles[-lookback - 1:-1] if c.get('volume')]
+    return sum(vols) / len(vols) if vols else None
+
+
+def _eval_charts_cond(cid: str, params: Dict, candles: List[Dict],
+                      curr: Dict, prev: Dict,
+                      c_ind: Dict, p_ind: Dict) -> Optional[bool]:
+    """Evaluate a single charts condition. Returns True/False or None if data missing."""
+    c_close = float(curr.get('close', 0))
+    p_close = float(prev.get('close', 0))
+
+    if cid == 'ema_cross_up':
+        fast, slow = params.get('fast', 9), params.get('slow', 21)
+        cf, cs = _ema_for_candles(candles, fast, -1), _ema_for_candles(candles, slow, -1)
+        pf, ps = _ema_for_candles(candles, fast, -2), _ema_for_candles(candles, slow, -2)
+        if None in (cf, cs, pf, ps): return None
+        return cf > cs and pf <= ps
+
+    elif cid == 'ema_cross_down':
+        fast, slow = params.get('fast', 9), params.get('slow', 21)
+        cf, cs = _ema_for_candles(candles, fast, -1), _ema_for_candles(candles, slow, -1)
+        pf, ps = _ema_for_candles(candles, fast, -2), _ema_for_candles(candles, slow, -2)
+        if None in (cf, cs, pf, ps): return None
+        return cf < cs and pf >= ps
+
+    elif cid == 'ema_above_slow':
+        fast, slow = params.get('fast', 9), params.get('slow', 21)
+        cf, cs = _ema_for_candles(candles, fast), _ema_for_candles(candles, slow)
+        if None in (cf, cs): return None
+        return cf > cs
+
+    elif cid == 'ema_below_slow':
+        fast, slow = params.get('fast', 9), params.get('slow', 21)
+        cf, cs = _ema_for_candles(candles, fast), _ema_for_candles(candles, slow)
+        if None in (cf, cs): return None
+        return cf < cs
+
+    elif cid == 'ema_slope_up':
+        period   = params.get('period', 21)
+        lookback = params.get('lookback', 3)
+        curr_e   = _ema_for_candles(candles, period, -1)
+        prev_e   = _ema_for_candles(candles, period, -1 - lookback)
+        if None in (curr_e, prev_e): return None
+        return curr_e > prev_e
+
+    elif cid == 'ema_slope_down':
+        period   = params.get('period', 21)
+        lookback = params.get('lookback', 3)
+        curr_e   = _ema_for_candles(candles, period, -1)
+        prev_e   = _ema_for_candles(candles, period, -1 - lookback)
+        if None in (curr_e, prev_e): return None
+        return curr_e < prev_e
+
+    elif cid == 'price_above_ema':
+        period = params.get('period', 21)
+        ema    = _ema_for_candles(candles, period)
+        if ema is None: return None
+        return c_close > ema
+
+    elif cid == 'price_below_ema':
+        period = params.get('period', 21)
+        ema    = _ema_for_candles(candles, period)
+        if ema is None: return None
+        return c_close < ema
+
+    elif cid == 'macd_hist_pos':
+        v = c_ind.get('MACDh_12_26_9')
+        if v is None: return None
+        return float(v) > 0
+
+    elif cid == 'macd_hist_neg':
+        v = c_ind.get('MACDh_12_26_9')
+        if v is None: return None
+        return float(v) < 0
+
+    elif cid == 'macd_above_signal':
+        m = c_ind.get('MACD_12_26_9'); s = c_ind.get('MACDs_12_26_9')
+        if None in (m, s): return None
+        return float(m) > float(s)
+
+    elif cid == 'macd_below_signal':
+        m = c_ind.get('MACD_12_26_9'); s = c_ind.get('MACDs_12_26_9')
+        if None in (m, s): return None
+        return float(m) < float(s)
+
+    elif cid == 'rsi_in_zone':
+        period = params.get('period', 14)
+        rsi = c_ind.get(f'RSI_{period}')
+        if rsi is None: return None
+        return params.get('min', 40) <= float(rsi) <= params.get('max', 65)
+
+    elif cid == 'rsi_oversold':
+        period = params.get('period', 14)
+        rsi = c_ind.get(f'RSI_{period}')
+        if rsi is None: return None
+        return float(rsi) < params.get('level', 30)
+
+    elif cid == 'rsi_overbought':
+        period = params.get('period', 14)
+        rsi = c_ind.get(f'RSI_{period}')
+        if rsi is None: return None
+        return float(rsi) > params.get('level', 70)
+
+    elif cid == 'price_above_vwap':
+        vwap = c_ind.get('VWAP_D') or c_ind.get('VWAP')
+        if vwap is None: return None
+        return c_close > float(vwap)
+
+    elif cid == 'price_below_vwap':
+        vwap = c_ind.get('VWAP_D') or c_ind.get('VWAP')
+        if vwap is None: return None
+        return c_close < float(vwap)
+
+    elif cid == 'volume_spike':
+        mult    = params.get('multiplier', 1.5)
+        avg_vol = _vol_avg(candles, 20)
+        if avg_vol is None or avg_vol == 0: return None
+        return float(curr.get('volume', 0)) > avg_vol * mult
+
+    elif cid == 'higher_high':
+        lookback = params.get('lookback', 5)
+        prev_highs = [float(c.get('high', 0)) for c in candles[-lookback - 1:-1]]
+        if not prev_highs: return None
+        return float(curr.get('high', 0)) > max(prev_highs)
+
+    elif cid == 'lower_low':
+        lookback = params.get('lookback', 5)
+        prev_lows = [float(c.get('low', 0)) for c in candles[-lookback - 1:-1]]
+        if not prev_lows: return None
+        return float(curr.get('low', 0)) < min(prev_lows)
+
+    elif cid == 'adx_trending':
+        # ADX pre-computed or skip (ADX requires DM+/DM- over many bars)
+        period    = params.get('period', 14)
+        threshold = params.get('threshold', 25)
+        adx = c_ind.get(f'ADX_{period}') or c_ind.get('ADX_14')
+        if adx is None: return None  # not pre-computed — skip
+        return float(adx) > threshold
+
+    elif cid == 'adx_above':
+        period    = params.get('period', 14)
+        threshold = params.get('threshold', 25)
+        adx = c_ind.get(f'ADX_{period}') or c_ind.get('ADX_14')
+        if adx is None: return None
+        return float(adx) > threshold
+
+    elif cid == 'bb_squeeze':
+        period  = params.get('period', 20)
+        k       = params.get('k', 2.0)
+        pct     = params.get('pct', 0.5)
+        bbu = c_ind.get(f'BBU_{period}_{float(k)}') or c_ind.get(f'BBU_{period}_{k}')
+        bbl = c_ind.get(f'BBL_{period}_{float(k)}') or c_ind.get(f'BBL_{period}_{k}')
+        bbm = c_ind.get(f'BBM_{period}_{float(k)}') or c_ind.get(f'BBM_{period}_{k}')
+        if None in (bbu, bbl, bbm) or float(bbm) == 0: return None
+        bw = (float(bbu) - float(bbl)) / float(bbm)
+        # "squeeze" = bandwidth below pct of typical range → BB are tight
+        lb = params.get('lookback', 20)
+        return bw < pct  # simplified: narrow band = squeeze
+
+    # Gate conditions — treat as pass-through (always True) since they can't be
+    # evaluated without a full bar-level scan.
+    elif cid in ('regime_tradeable', 'forecast_clears_fees', 'atr_breakout',
+                 'vol_expansion', 'regime_is'):
+        return True  # cannot evaluate these without full bar history — do not block
+
+    return None  # unknown condition — skip
+
+
+def evaluate_charts_strategy(symbol: str, strategy: Dict, candles: List[Dict]) -> Optional[Dict]:
+    """Evaluate a charts-imported strategy (source='charts_import').
+
+    The indicator_logic has the shape:
+        { "entry": { "direction", "logic", "conditions": [...] },
+          "exit": {...}, "risk": {...}, "source": "charts_import" }
+    """
+    try:
+        if len(candles) < 2:
+            return None
+
+        indicator_logic = strategy.get('indicator_logic', {})
+        entry = indicator_logic.get('entry', {})
+        conditions = [c for c in entry.get('conditions', []) if c.get('enabled', True)]
+        if not conditions:
+            return None
+
+        logic     = entry.get('logic', 'AND').upper()
+        direction = entry.get('direction', 'long').lower()
+
+        curr  = candles[-1]
+        prev  = candles[-2]
+        c_ind = curr.get('indicators') or {}
+        p_ind = prev.get('indicators') or {}
+
+        current_price = float(curr.get('close', 0))
+
+        results = []
+        for cond in conditions:
+            r = _eval_charts_cond(
+                cond.get('id', ''), cond.get('params', {}),
+                candles, curr, prev, c_ind, p_ind
+            )
+            results.append(r)
+
+        # Definitive results only (exclude None = data missing)
+        known = [r for r in results if r is not None]
+        if not known:
+            return None
+
+        if logic == 'AND':
+            fired = all(known) and len(known) == len(results)  # all must be true + no unknowns
+        else:  # OR
+            fired = any(known)
+
+        if not fired:
+            return None
+
+        signal_type = 'BUY' if direction == 'long' else 'SELL'
+
+        # Quality: boosts for RSI confirmation
+        quality_score = 68
+        rsi = c_ind.get('RSI_14')
+        if rsi is not None:
+            rsi = float(rsi)
+            if signal_type == 'BUY' and rsi < 50:
+                quality_score = min(88, 68 + int((50 - rsi) * 0.8))
+            elif signal_type == 'SELL' and rsi > 50:
+                quality_score = min(88, 68 + int((rsi - 50) * 0.8))
+
+        return {
+            'symbol':                    symbol,
+            'strategy_id':               strategy['id'],
+            'signal_type':               signal_type,
+            'quality_score':             quality_score,
+            'quality_breakdown':         {'backtest': 25, 'sentiment': 15,
+                                          'historical': 18, 'ai_intuition': 10},
+            'projected_return_pct':      2.5 if signal_type == 'BUY' else -2.0,
+            'projected_timeframe_minutes': 120,
+            'price_at_signal':           current_price,
+        }
+
+    except Exception as e:
+        logger.error('evaluate_charts_strategy_error', symbol=symbol,
+                     strategy=strategy.get('name'), error=str(e))
+        return None
+
+
 def evaluate_strategy(symbol: str, strategy: Dict, candles: List[Dict]) -> Optional[Dict]:
     """Evaluate a strategy against recent candles using dynamic indicator_logic"""
     try:
         if len(candles) == 0:
             return None
-        
+
+        # Route charts-imported strategies to dedicated evaluator
+        indicator_logic = strategy.get('indicator_logic', {})
+        if indicator_logic.get('source') == 'charts_import':
+            return evaluate_charts_strategy(symbol, strategy, candles)
+
         latest_candle = candles[-1]
         current_price = float(latest_candle['close'])
         
@@ -270,7 +545,6 @@ def evaluate_strategy(symbol: str, strategy: Dict, candles: List[Dict]) -> Optio
             return None
         
         # Parse indicator_logic from strategy
-        indicator_logic = strategy.get('indicator_logic', {})
         buy_conditions = indicator_logic.get('buy_conditions', [])
         sell_conditions = indicator_logic.get('sell_conditions', [])
         

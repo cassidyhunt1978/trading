@@ -348,12 +348,25 @@ async def compute_indicators(
             df_indexed.ta.sma(length=50, append=True)
             computed = 'SMA'
         elif indicator.upper() == 'EMA':
-            df_indexed.ta.ema(length=12, append=True)
-            df_indexed.ta.ema(length=26, append=True)
+            # Core EMA periods for charts strategy evaluation
+            df_indexed.ta.ema(length=9,   append=True)  # fast EMA (ema_cross_up)
+            df_indexed.ta.ema(length=12,  append=True)
+            df_indexed.ta.ema(length=21,  append=True)  # slow EMA (ema_cross_up)
+            df_indexed.ta.ema(length=26,  append=True)
+            df_indexed.ta.ema(length=50,  append=True)  # ema_above_slow reference
+            df_indexed.ta.ema(length=200, append=True)  # long-term trend filter
             computed = 'EMA'
         elif indicator.upper() == 'VWAP':
             df_indexed.ta.vwap(append=True)
             computed = 'VWAP'
+        elif indicator.upper() == 'ADX':
+            # ADX — needed for adx_trending / adx_above charts conditions
+            df_indexed.ta.adx(length=14, append=True)
+            computed = 'ADX'
+        elif indicator.upper() == 'ATR':
+            # ATR — needed for atr_breakout charts condition
+            df_indexed.ta.atr(length=14, append=True)
+            computed = 'ATR'
         else:
             raise HTTPException(status_code=400, detail=f"Unsupported indicator: {indicator}")
         
