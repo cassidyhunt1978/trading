@@ -302,29 +302,24 @@
             }
         }
         
-        // Show Chart Modal
+        // Show Chart Modal - embeds MarketMind charts app in modal iframe
         async function showChart(symbol) {
             window.currentSymbol = symbol;
-            window.open(`http://${window.API_HOST}/charts/?symbol=${encodeURIComponent(symbol)}`, '_blank');
-        }
-
-        // Legacy chart modal (kept for reference, no longer used)
-        async function _showChartLegacy(symbol) {
+            const src = `/charts/?symbol=${encodeURIComponent(symbol)}`;
             const content = `
-                <div class="mb-4">
-                    <select id="signal-jump" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm">
-                        <option value="">Jump to signal...</option>
-                    </select>
-                </div>
-                <div class="bg-gray-800 p-4 rounded-lg">
-                    <canvas id="price-chart" height="250"></canvas>
-                </div>
-                <div class="mt-4 text-sm text-gray-400 text-center">
-                    <span id="candle-info">Loading chart data...</span>
-                </div>
+                <iframe
+                    id="charts-iframe"
+                    src="${src}"
+                    style="width:100%;height:78vh;border:none;border-radius:8px;display:block;"
+                    allow="fullscreen"
+                    title="${symbol} MarketMind Chart"
+                ></iframe>
             `;
-            
-            openModal(`${symbol} Price Chart`, content);
+            // Expand modal body to edge-to-edge (no padding) for charts
+            const modalBody = document.getElementById('modal-body');
+            modalBody.style.padding = '0';
+            openModal(`${symbol} — MarketMind Charts`, content);
+        }
             
             // Load chart data
             try {

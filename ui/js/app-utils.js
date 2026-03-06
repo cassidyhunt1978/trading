@@ -24,6 +24,12 @@ function openModal(title, content) {
 function closeModal(event) {
     if (event && event.target !== event.currentTarget) return;
     document.getElementById('modal-overlay').classList.remove('active');
+    // Destroy any embedded iframe to stop background processing
+    const iframe = document.getElementById('charts-iframe');
+    if (iframe) iframe.src = 'about:blank';
+    // Restore modal body padding for non-chart modals
+    const modalBody = document.getElementById('modal-body');
+    if (modalBody) modalBody.style.padding = '';
     if (window.chartInstance) {
         window.chartInstance.destroy();
         window.chartInstance = null;
