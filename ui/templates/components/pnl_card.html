@@ -137,6 +137,43 @@
     </div>
 
     
+    <!-- ─── Mini Equity Curve ──────────────────────────────────────────────── -->
+    <div class="bg-gray-900 rounded-lg p-3 border border-gray-700 mb-4">
+        <div class="flex justify-between items-center mb-1">
+            <h4 class="text-sm font-semibold text-gray-400">📈 Equity Curve</h4>
+            <div class="flex gap-1">
+                <button onclick="loadMiniEquity(7)"  data-days="7"  class="mini-eq-btn px-2 py-0.5 rounded bg-gray-700 hover:bg-gray-600 text-xs">7d</button>
+                <button onclick="loadMiniEquity(30)" data-days="30" class="mini-eq-btn px-2 py-0.5 rounded bg-blue-600 text-xs">30d</button>
+            </div>
+        </div>
+        <div class="relative" style="height:80px">
+            <canvas id="mini-equity-canvas"></canvas>
+            <div id="mini-equity-empty" class="absolute inset-0 flex items-center justify-center text-xs text-gray-600" style="display:none!important">No data yet</div>
+        </div>
+    </div>
+
+    <!-- ─── Top 5 Symbols ─────────────────────────────────────────────────── -->
+    <div class="bg-gray-900 rounded-lg p-3 border border-gray-700 mb-4">
+        <div class="flex justify-between items-center mb-2">
+            <h4 class="text-sm font-semibold text-gray-400">🏆 Top Symbols</h4>
+            <span class="text-xs text-gray-600">by trust · hide &lt;3 trades</span>
+        </div>
+        <div id="top-symbols-list" class="space-y-1">
+            <div class="text-xs text-gray-600 text-center py-2">Loading…</div>
+        </div>
+    </div>
+
+    <!-- ─── Top 5 Strategies ──────────────────────────────────────────────── -->
+    <div class="bg-gray-900 rounded-lg p-3 border border-gray-700 mb-4">
+        <div class="flex justify-between items-center mb-2">
+            <h4 class="text-sm font-semibold text-gray-400">📊 Top Strategies</h4>
+            <span class="text-xs text-gray-600">PF &gt; 1.0 highlighted</span>
+        </div>
+        <div id="top-strategies-list" class="space-y-1">
+            <div class="text-xs text-gray-600 text-center py-2">Loading…</div>
+        </div>
+    </div>
+
     <!-- Open Positions Section -->
     <div id="pnl-open-positions-section" class="mb-4">
         <div class="flex justify-between items-center mb-2">

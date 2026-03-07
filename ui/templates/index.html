@@ -1290,127 +1290,220 @@
             }
         }
         
-        // Show Details Modal
-        async function showDetails(symbol) {
-            // Open modal with loading state
-            openModal(`${symbol} Details`, '<div class="text-center py-8"><div class="animate-spin inline-block w-8 h-8 border-4 border-blue-400 border-t-transparent rounded-full"></div></div>');
-            
+        // ─── Enhanced Symbol Detail Modal ──────────────────────────────────────
+        async function showSymbolDetail(symbol) {
+            openModal(`${symbol} — Symbol Detail`,
+                '<div class="text-center py-8"><div class="animate-spin inline-block w-8 h-8 border-4 border-blue-400 border-t-transparent rounded-full"></div></div>');
             try {
-                // Fetch database stats for this symbol
-                const response = await fetch(`http://${window.API_HOST}:8019/test/database`);
-                const data = await response.json();
-                
-                if (data.status === 'success') {
-                    const symbolData = data.candle_counts.find(item => item.symbol === symbol);
-                    const count = symbolData ? symbolData.count : 0;
-                    const target = 180 * 24 * 60; // 180 days
-                    const coverage = ((count / target) * 100).toFixed(2);
-                    
-                    // Use latest candle from testing API response
-                    const latestCandle = data.latest_candle ? new Date(data.latest_candle) : null;
-                    
-                    const content = `
-                        <div class="space-y-4">
-                            <!-- Candle Data Card -->
-                            <div class="bg-gray-800 p-4 rounded-lg">
-                                <h3 class="font-bold mb-3 text-xl">📊 Candle Data</h3>
-                                <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                    <div class="stat-box">
-                                        <div class="stat-label">Total Candles</div>
-                                        <div class="stat-value text-blue-400 text-2xl">${count.toLocaleString()}</div>
-                                    </div>
-                                    <div class="stat-box">
-                                        <div class="stat-label">Target (180d)</div>
-                                        <div class="stat-value text-gray-400 text-2xl">${target.toLocaleString()}</div>
-                                    </div>
-                                    <div class="stat-box">
-                                        <div class="stat-label">Coverage</div>
-                                        <div class="stat-value text-${coverage >= 100 ? 'green' : coverage >= 50 ? 'yellow' : 'red'}-400 text-2xl">${coverage}%</div>
-                                    </div>
-                                    <div class="stat-box">
-                                        <div class="stat-label">Timeframe</div>
-                                        <div class="stat-value text-purple-400 text-2xl">1m</div>
-                                    </div>
-                                </div>
-                                
-                                ${latestCandle ? `
-                                    <div class="mt-4 pt-4 border-t border-gray-700">
-                                        <div class="text-sm">
-                                            <div class="text-gray-400 mb-1">Latest Candle</div>
-                                            <div class="font-bold">${latestCandle.toLocaleString()}</div>
-                                        </div>
-                                    </div>
-                                ` : ''}
-                            </div>
-                            
-                            <!-- Progress Bar -->
-                            <div class="bg-gray-800 p-4 rounded-lg">
-                                <h3 class="font-bold mb-3">Data Collection Progress</h3>
-                                <div class="w-full bg-gray-700 rounded-full h-8 mb-2">
-                                    <div class="bg-gradient-to-r from-blue-500 to-purple-500 h-8 rounded-full flex items-center justify-center text-sm font-bold transition-all duration-500" style="width: ${Math.min(100, coverage)}%">
-                                        ${coverage}%
-                                    </div>
-                                </div>
-                                <div class="flex justify-between text-xs text-gray-400">
-                                    <span>${count.toLocaleString()} / ${target.toLocaleString()} candles</span>
-                                    <span>${(target - count).toLocaleString()} remaining</span>
-                                </div>
-                            </div>
-                        
-                            <!-- Symbol Info Card -->
-                            <div class="bg-gray-800 p-4 rounded-lg">
-                                <h3 class="font-bold mb-3">Symbol Information</h3>
-                                <div class="space-y-2 text-sm">
-                                    <div class="flex justify-between">
-                                        <span class="text-gray-400">Symbol:</span>
-                                        <span class="font-bold">${symbol}</span>
-                                    </div>
-                                    <div class="flex justify-between">
-                                        <span class="text-gray-400">Exchange:</span>
-                                        <span>Coinbase</span>
-                                    </div>
-                                    <div class="flex justify-between">
-                                        <span class="text-gray-400">Pair:</span>
-                                        <span>${symbol}-USD</span>
-                                    </div>
-                                    <div class="flex justify-between">
-                                        <span class="text-gray-400">Timeframe:</span>
-                                        <span>1 minute</span>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <!-- Background Tasks Card -->
-                            <div class="bg-gray-800 p-4 rounded-lg">
-                                <h3 class="font-bold mb-3">⚙️ Background Tasks</h3>
-                                <div class="text-sm text-gray-300 space-y-2">
-                                    <div class="flex items-start gap-2">
-                                        <span class="text-green-400 font-bold">✓</span>
-                                        <div>
-                                            <div class="font-semibold">Real-time Fetch</div>
-                                            <div class="text-gray-400 text-xs">Fetching latest 5 candles every 60 seconds</div>
-                                        </div>
-                                    </div>
-                                    <div class="flex items-start gap-2">
-                                        <span class="text-blue-400 font-bold">⟳</span>
-                                        <div>
-                                            <div class="font-semibold">Historical Backfill</div>
-                                            <div class="text-gray-400 text-xs">Fetching 500 candles backwards every 5 minutes until 180 days complete</div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
+                const [stratResp, posResp, statsResp] = await Promise.allSettled([
+                    fetch(`http://${window.API_HOST}:8015/export_trading_strategy?symbol=${symbol}&limit=5`),
+                    fetch(`http://${window.API_HOST}:8016/positions?mode=paper&status=closed&limit=10&symbol=${symbol}`),
+                    fetch(`http://${window.API_HOST}:8016/symbols/stats?mode=paper`),
+                ]);
+                const stratData = stratResp.status === 'fulfilled' && stratResp.value.ok ? await stratResp.value.json() : { strategies: [], count: 0 };
+                const posData   = posResp.status   === 'fulfilled' && posResp.value.ok   ? await posResp.value.json()   : { positions: [] };
+                const statsData = statsResp.status === 'fulfilled' && statsResp.value.ok ? await statsResp.value.json() : { symbols: [] };
+
+                const stats      = (statsData.symbols || []).find(s => s.symbol === symbol) || {};
+                const strategies = stratData.strategies || [];
+                const positions  = (posData.positions || posData).slice(0, 10);
+                const trust      = parseFloat(stats.best_trust_factor || 0);
+                const pf         = parseFloat(stats.best_profit_factor || 0);
+                const pnl30d     = parseFloat(stats.pnl_30d || 0);
+                const trades30d  = parseInt(stats.trades_30d || 0);
+
+                console.log(`[showSymbolDetail] Data flow for ${symbol}:`, {
+                    strategies: strategies.length, recentTrades: positions.length,
+                    trust: trust.toFixed(2), pf: pf.toFixed(2), pnl30d: pnl30d.toFixed(2),
+                });
+
+                const pnlColor  = pnl30d >= 0 ? 'text-green-400' : 'text-red-400';
+                const pnlSign   = pnl30d >= 0 ? '+' : '';
+                const pfColor   = pf >= 1.0 ? 'text-green-400' : 'text-yellow-400';
+                const trustPct  = Math.round(trust * 100);
+                const trustColor = trustPct >= 70 ? 'text-green-400' : trustPct >= 40 ? 'text-yellow-400' : 'text-red-400';
+
+                const stratsHtml = strategies.length ? strategies.map((s, i) => {
+                    const sPf = s.backtest_summary?.profit_factor || s.profit_factor || 0;
+                    const sPfColor = sPf >= 1.0 ? 'text-green-400' : 'text-gray-400';
+                    const sTrust = Math.round((s.trust_factor || 0) * 100);
+                    return `<div class="flex items-center gap-2 py-1.5 border-b border-gray-700 last:border-0 text-xs">
+                        <span class="text-gray-500 w-4">${i+1}.</span>
+                        <span class="flex-1 text-gray-200 truncate" title="${s.strategy_name}">${s.strategy_name}</span>
+                        <span class="${sPfColor} font-bold">PF ${sPf.toFixed(2)}</span>
+                        <span class="text-gray-500">${sTrust}% trust</span>
+                    </div>`;
+                }).join('') : '<div class="text-gray-600 text-xs py-2 text-center">No strategies loaded yet</div>';
+
+                let totalFees = 0;
+                const posHtml = positions.length ? positions.map(p => {
+                    const pnl = parseFloat(p.realized_pnl || 0);
+                    const fee = parseFloat(p.fee || p.entry_fee || 0);
+                    totalFees += fee;
+                    return `<div class="flex items-center gap-2 py-1 border-b border-gray-800 last:border-0 text-xs">
+                        <span class="${pnl>=0?'text-green-400':'text-red-400'} font-bold w-16">${pnl>=0?'+':''}$${pnl.toFixed(2)}</span>
+                        <span class="text-gray-500">${p.entry_time ? p.entry_time.slice(0,16).replace('T',' ') : '—'}</span>
+                        <span class="text-gray-600 ml-auto">fee $${fee.toFixed(3)}</span>
+                    </div>`;
+                }).join('') : '<div class="text-gray-600 text-xs py-2 text-center">No recent trades</div>';
+
+                const content = `
+                <div class="space-y-4">
+                    <!-- KPI Row -->
+                    <div class="grid grid-cols-4 gap-2">
+                        <div class="bg-gray-800 rounded p-3 text-center">
+                            <div class="text-xs text-gray-500 mb-1">Trust</div>
+                            <div class="text-lg font-bold ${trustColor}">${trustPct}%</div>
                         </div>
-                    `;
-                    
-                    openModal(`${symbol} Details`, content);
-                }
-            } catch (error) {
-                console.error('Error loading symbol details:', error);
+                        <div class="bg-gray-800 rounded p-3 text-center">
+                            <div class="text-xs text-gray-500 mb-1">Best PF</div>
+                            <div class="text-lg font-bold ${pfColor}">${pf.toFixed(2)}</div>
+                        </div>
+                        <div class="bg-gray-800 rounded p-3 text-center">
+                            <div class="text-xs text-gray-500 mb-1">30d P&amp;L</div>
+                            <div class="text-lg font-bold ${pnlColor}">${pnlSign}$${Math.abs(pnl30d).toFixed(2)}</div>
+                        </div>
+                        <div class="bg-gray-800 rounded p-3 text-center">
+                            <div class="text-xs text-gray-500 mb-1">Trades</div>
+                            <div class="text-lg font-bold text-gray-200">${trades30d}</div>
+                        </div>
+                    </div>
+
+                    <!-- Action Buttons -->
+                    <div class="flex gap-2 flex-wrap">
+                        <button onclick="showChart('${symbol}'); closeModal()" class="px-3 py-2 bg-blue-600 hover:bg-blue-700 rounded text-sm">
+                            📊 Chart
+                        </button>
+                        <button onclick="showBacktest('${symbol}'); closeModal()" class="px-3 py-2 bg-purple-600 hover:bg-purple-700 rounded text-sm">
+                            🧪 Backtest
+                        </button>
+                        <button onclick="unblockSymbol('${symbol}')" class="px-3 py-2 bg-orange-600 hover:bg-orange-700 rounded text-sm">
+                            🔓 Unblock
+                        </button>
+                        <button onclick="forceRefreshAndClose('${symbol}')" class="px-3 py-2 bg-green-600 hover:bg-green-700 rounded text-sm">
+                            ⚡ Force Refresh
+                        </button>
+                    </div>
+
+                    <!-- Top Strategies for Symbol -->
+                    <div class="bg-gray-800 rounded-lg p-3">
+                        <div class="text-sm font-semibold text-gray-300 mb-2">Top Strategies <span class="text-xs text-gray-500">(trust-ranked)</span></div>
+                        ${stratsHtml}
+                    </div>
+
+                    <!-- Recent Trades -->
+                    <div class="bg-gray-800 rounded-lg p-3">
+                        <div class="flex justify-between items-center mb-2">
+                            <span class="text-sm font-semibold text-gray-300">Recent Trades</span>
+                            ${positions.length ? `<span class="text-xs text-gray-500">fees total: $${totalFees.toFixed(3)}</span>` : ''}
+                        </div>
+                        ${posHtml}
+                    </div>
+                </div>`;
+
+                openModal(`${symbol} — Symbol Detail`, content);
+            } catch(e) {
+                console.error('showSymbolDetail error', e);
                 openModal(`${symbol} Details`, '<div class="text-center py-8 text-red-400">Error loading data</div>');
             }
         }
-        
+        window.showSymbolDetail = showSymbolDetail;
+
+        // ─── Unblock symbol helper ─────────────────────────────────────────────
+        async function unblockSymbol(symbol) {
+            try {
+                const r = await fetch(`http://${window.API_HOST}:8016/reset_blocks?symbol=${symbol}`, { method: 'POST' });
+                const d = await r.json();
+                const n = d.count || 0;
+                if (window.showNotification) window.showNotification(n > 0 ? `✅ Unblocked ${n} strategies for ${symbol}` : `ℹ️ ${symbol} already active`, n > 0 ? 'success' : 'info');
+                console.log(`[unblockSymbol] ${symbol}:`, d);
+            } catch(e) {
+                if (window.showNotification) window.showNotification(`Failed to unblock ${symbol}`, 'error');
+            }
+        }
+        window.unblockSymbol = unblockSymbol;
+
+        async function forceRefreshAndClose(symbol) {
+            closeModal();
+            if (window.forceRefreshSymbol) await forceRefreshSymbol(symbol);
+        }
+        window.forceRefreshAndClose = forceRefreshAndClose;
+
+        // ─── Strategy Detail Modal ─────────────────────────────────────────────
+        async function showStrategyDetail(symbol, strategyName) {
+            openModal(`${symbol} · ${strategyName}`,
+                '<div class="text-center py-8"><div class="animate-spin inline-block w-8 h-8 border-4 border-purple-400 border-t-transparent rounded-full"></div></div>');
+            try {
+                const r = await fetch(`http://${window.API_HOST}:8023/trust_rankings?limit=100&symbol=${symbol}`);
+                const d = r.ok ? await r.json() : { rankings: [] };
+                const s = (d.rankings || []).find(x => x.strategy_name === strategyName) || null;
+
+                console.log(`[showStrategyDetail] Data flow for ${symbol}/${strategyName}:`, s || 'not found');
+
+                const trust  = s ? Math.round(s.trust_factor * 100) : 0;
+                const pf     = s ? s.profit_factor : 0;
+                const wr     = s ? s.win_rate : 0;
+                const trades = s ? s.total_trades : 0;
+                const pfColor = pf >= 1.0 ? 'text-green-400' : 'text-yellow-400';
+                const trustColor = trust >= 70 ? 'text-green-400' : trust >= 40 ? 'text-yellow-400' : 'text-red-400';
+
+                const content = `
+                <div class="space-y-4">
+                    <!-- KPIs -->
+                    <div class="grid grid-cols-4 gap-2">
+                        <div class="bg-gray-800 rounded p-3 text-center">
+                            <div class="text-xs text-gray-500 mb-1">Trust</div>
+                            <div class="text-xl font-bold ${trustColor}">${trust}%</div>
+                        </div>
+                        <div class="bg-gray-800 rounded p-3 text-center">
+                            <div class="text-xs text-gray-500 mb-1">Profit Factor</div>
+                            <div class="text-xl font-bold ${pfColor}">${pf.toFixed(2)}</div>
+                        </div>
+                        <div class="bg-gray-800 rounded p-3 text-center">
+                            <div class="text-xs text-gray-500 mb-1">Win Rate</div>
+                            <div class="text-xl font-bold text-blue-400">${wr.toFixed(1)}%</div>
+                        </div>
+                        <div class="bg-gray-800 rounded p-3 text-center">
+                            <div class="text-xs text-gray-500 mb-1">Trades</div>
+                            <div class="text-xl font-bold text-gray-200">${trades}</div>
+                        </div>
+                    </div>
+                    ${s?.description ? `<div class="bg-gray-800 rounded p-3 text-sm text-gray-300">${s.description}</div>` : ''}
+                    <!-- Status -->
+                    <div class="bg-gray-800 rounded p-3">
+                        <div class="flex justify-between items-center text-sm">
+                            <span class="text-gray-400">Status</span>
+                            <span class="${s?.status==='active'?'text-green-400':'text-gray-500'}">${s?.status || '—'}</span>
+                        </div>
+                        <div class="flex justify-between items-center text-sm mt-2">
+                            <span class="text-gray-400">Last Updated</span>
+                            <span class="text-gray-300">${s?.updated_at ? s.updated_at.slice(0,16).replace('T',' ') : '—'}</span>
+                        </div>
+                    </div>
+                    <!-- Actions -->
+                    <div class="flex gap-2">
+                        <button onclick="showBacktest('${symbol}'); closeModal()" class="flex-1 px-3 py-2 bg-purple-600 hover:bg-purple-700 rounded text-sm">
+                            🧪 Run Backtest
+                        </button>
+                        <button onclick="showTab('reports'); closeModal()" class="flex-1 px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm">
+                            📊 Full Rankings
+                        </button>
+                    </div>
+                </div>`;
+                openModal(`${symbol} · ${strategyName}`, content);
+            } catch(e) {
+                console.error('showStrategyDetail error', e);
+                openModal(`${symbol} · ${strategyName}`, '<div class="text-red-400 text-center py-8">Error loading strategy data</div>');
+            }
+        }
+        window.showStrategyDetail = showStrategyDetail;
+
+        // Show Details Modal (legacy – kept for Symbols tab button compatibility)
+        async function showDetails(symbol) {
+            // Delegate to enhanced modal
+            return showSymbolDetail(symbol);
+        }
+
         // Tab Switching
         function showTab(tabName) {
             // Hide all tabs

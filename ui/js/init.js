@@ -29,6 +29,8 @@ document.addEventListener('DOMContentLoaded', () => {
         window.loadPositions && window.loadPositions();
         window.loadEnsembleSignals && window.loadEnsembleSignals();
         window.loadPnlCard && window.loadPnlCard('paper');
+        // Dashboard widgets: equity curve, top symbols, top strategies
+        setTimeout(() => { window.loadTopDashboard && window.loadTopDashboard(); }, 800);
     } else if (savedTab === 'strategies') {
         window.loadStrategies && window.loadStrategies();
         window.loadStrategyPerformance && window.loadStrategyPerformance();
@@ -36,6 +38,12 @@ document.addEventListener('DOMContentLoaded', () => {
         window.loadPolicies && window.loadPolicies();
     } else if (savedTab === 'system') {
         window.loadSystemHealth && window.loadSystemHealth();
+    }
+
+    // Always load portfolio widgets on DOMContentLoaded regardless of current tab
+    // (They're lightweight reads and make the dashboard useful immediately)
+    if (savedTab !== 'portfolio') {
+        setTimeout(() => { window.loadTopDashboard && window.loadTopDashboard(); }, 2000);
     }
     
     // Refresh symbols data every 60 seconds when on Symbols tab
@@ -53,6 +61,22 @@ document.addEventListener('DOMContentLoaded', () => {
             window.loadPositions && window.loadPositions();
         }
     }, 15000);
+
+    // Refresh dashboard widgets (equity, top symbols/strats) every 5 minutes
+    setInterval(() => {
+        window.loadTopDashboard && window.loadTopDashboard();
+    }, 300000);
+
+    // Also load dashboard widgets when switching to portfolio tab
+    const _origShowTabInit = window.showTab;
+    if (typeof _origShowTabInit === 'function') {
+        window.showTab = function(name) {
+            _origShowTabInit.call(this, ...arguments);
+            if (name === 'portfolio') {
+                setTimeout(() => { window.loadTopDashboard && window.loadTopDashboard(); }, 300);
+            }
+        };
+    }
     
     // Refresh system data every 30 seconds when on System tab
     setInterval(() => {

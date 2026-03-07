@@ -200,6 +200,24 @@ body { overscroll-behavior: none; }
     button, .btn {
         min-height: 40px;
     }
+
+    /* Dashboard KPI grid: 2-col on mobile */
+    .grid-cols-4 { grid-template-columns: repeat(2, 1fr) !important; }
+
+    /* Top symbols / strategies list: full width */
+    #top-symbols-list .flex,
+    #top-strategies-list .flex {
+        flex-wrap: nowrap;
+        font-size: 11px;
+    }
+    #top-symbols-list .w-10,
+    #top-strategies-list .w-10 { width: 2rem; }
+
+    /* Mini equity canvas — slightly taller on mobile for readability */
+    #mini-equity-canvas { height: 90px !important; }
+
+    /* Reports table: hide win% on very small screens */
+    .reports-winrate-col { display: none; }
 }
 
 @media (max-width: 400px) {

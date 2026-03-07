@@ -1539,3 +1539,149 @@ async function forceRefreshSymbol(symbol) {
 }
 
 window.forceRefreshSymbol = forceRefreshSymbol;
+
+// ─── Dashboard: Mini Equity Curve ────────────────────────────────────────────
+let _miniEquityChart = null;
+
+async function loadMiniEquity(days = 30) {
+    // Toggle active button
+    document.querySelectorAll('.mini-eq-btn').forEach(b => {
+        const active = parseInt(b.dataset.days) === days;
+        b.classList.toggle('bg-blue-600', active);
+        b.classList.toggle('bg-gray-700', !active);
+    });
+    try {
+        const r = await fetch(`http://${window.API_HOST}:8023/daily_log?days=${days}`);
+        if (!r.ok) return;
+        const d = await r.json();
+        const entries = (d.entries || []).slice().sort((a, b) => a.date < b.date ? -1 : 1);
+        const canvas = document.getElementById('mini-equity-canvas');
+        const empty  = document.getElementById('mini-equity-empty');
+        if (!canvas) return;
+        if (!entries.length) { if (empty) empty.style.display = 'flex'; return; }
+        if (empty) empty.style.display = 'none';
+
+        // Build cumulative P&L series
+        let cum = 0;
+        const labels = [];
+        const data   = [];
+        entries.forEach(e => {
+            cum += (e.total_pnl || 0);
+            labels.push(e.date.slice(5)); // MM-DD
+            data.push(parseFloat(cum.toFixed(2)));
+        });
+
+        console.log(`[Dashboard] Mini equity: ${entries.length} trading days over ${days}d, cumPnL: ${cum.toFixed(2)}`);
+
+        const rising = data[data.length - 1] >= 0;
+        if (_miniEquityChart) _miniEquityChart.destroy();
+        _miniEquityChart = new Chart(canvas.getContext('2d'), {
+            type: 'line',
+            data: {
+                labels,
+                datasets: [{
+                    data,
+                    borderColor: rising ? '#10b981' : '#ef4444',
+                    backgroundColor: rising ? 'rgba(16,185,129,0.06)' : 'rgba(239,68,68,0.06)',
+                    borderWidth: 2, pointRadius: 2, fill: true, tension: 0.3,
+                }]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { display: false }, tooltip: { callbacks: {
+                    label: ctx => `Cum P&L: $${ctx.parsed.y.toFixed(2)}`
+                }}},
+                scales: {
+                    x: { ticks: { color: '#6b7280', font: { size: 9 } }, grid: { display: false } },
+                    y: { ticks: { color: '#6b7280', font: { size: 9 },
+                             callback: v => `$${v.toFixed(0)}` }, grid: { color: '#1f2937' } },
+                }
+            }
+        });
+    } catch(e) { console.warn('[Dashboard] mini equity failed', e); }
+}
+
+// ─── Dashboard: Top Symbols ────────────────────────────────────────────────
+async function loadTopSymbols() {
+    const el = document.getElementById('top-symbols-list');
+    if (!el) return;
+    try {
+        const r = await fetch(`http://${window.API_HOST}:8016/symbols/stats?mode=paper`);
+        if (!r.ok) { el.innerHTML = '<div class="text-xs text-gray-600 text-center py-2">Unavailable</div>'; return; }
+        const d = await r.json();
+        const syms = (d.symbols || [])
+            .filter(s => (s.strategy_trades >= 3 || parseFloat(s.best_trust_factor) >= 0.5))
+            .map(s => ({
+                symbol:       s.symbol,
+                trust:        parseFloat(s.best_trust_factor || 0),
+                pf:           parseFloat(s.best_profit_factor || 0),
+                trades:       parseInt(s.strategy_trades || 0),
+                pnl_30d:      parseFloat(s.pnl_30d || 0),
+            }))
+            .sort((a, b) => b.trust - a.trust)
+            .slice(0, 5);
+
+        console.log(`[Dashboard] Top symbols (${syms.length}):`, syms.map(s => `${s.symbol} trust=${s.trust.toFixed(2)}`));
+
+        if (!syms.length) { el.innerHTML = '<div class="text-xs text-gray-600 text-center py-2">No symbol data yet (need ≥3 trades)</div>'; return; }
+        el.innerHTML = syms.map(s => {
+            const trustPct = Math.round(s.trust * 100);
+            const trustColor = trustPct >= 70 ? 'text-green-400' : trustPct >= 40 ? 'text-yellow-400' : 'text-red-400';
+            const pnlColor   = s.pnl_30d >= 0 ? 'text-green-400' : 'text-red-400';
+            const pnlSign    = s.pnl_30d >= 0 ? '+' : '';
+            return `<div class="flex items-center gap-2 text-xs py-1 border-b border-gray-800 last:border-0 cursor-pointer hover:bg-gray-800 rounded px-1"
+                         onclick="window.showSymbolDetail && window.showSymbolDetail('${s.symbol}')">
+                <span class="font-mono text-blue-400 w-10 flex-shrink-0">${s.symbol}</span>
+                <div class="flex-1 min-w-0">
+                    <div class="h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                        <div class="h-1.5 ${trustPct>=70?'bg-green-500':trustPct>=40?'bg-yellow-500':'bg-red-500'} rounded-full" style="width:${Math.min(100,trustPct)}%"></div>
+                    </div>
+                </div>
+                <span class="${trustColor} font-bold w-8 text-right">${trustPct}%</span>
+                <span class="text-gray-500 w-8 text-right">PF${s.pf.toFixed(1)}</span>
+                <span class="${pnlColor} w-12 text-right">${pnlSign}$${Math.abs(s.pnl_30d).toFixed(2)}</span>
+            </div>`;
+        }).join('');
+    } catch(e) { console.warn('[Dashboard] loadTopSymbols failed', e); }
+}
+
+// ─── Dashboard: Top Strategies ─────────────────────────────────────────────
+async function loadTopStrategies() {
+    const el = document.getElementById('top-strategies-list');
+    if (!el) return;
+    try {
+        const r = await fetch(`http://${window.API_HOST}:8023/trust_rankings?limit=20`);
+        if (!r.ok) { el.innerHTML = '<div class="text-xs text-gray-600 text-center py-2">Unavailable</div>'; return; }
+        const d = await r.json();
+        const strats = (d.rankings || [])
+            .filter(s => s.total_trades >= 2 || s.profit_factor >= 1.0)
+            .sort((a, b) => b.trust_factor - a.trust_factor)
+            .slice(0, 5);
+
+        console.log(`[Dashboard] Top strategies (${strats.length}):`, strats.map(s => `${s.symbol}/${s.strategy_name} pf=${s.profit_factor.toFixed(2)}`));
+
+        if (!strats.length) { el.innerHTML = '<div class="text-xs text-gray-600 text-center py-2">No strategy data yet (need ≥2 trades)</div>'; return; }
+        el.innerHTML = strats.map(s => {
+            const pfGood    = s.profit_factor >= 1.0;
+            const pfColor   = pfGood ? 'text-green-400' : 'text-gray-400';
+            const rowBg     = pfGood ? 'border-green-900' : 'border-gray-800';
+            const trustPct  = Math.round(s.trust_factor * 100);
+            const trustColor = trustPct >= 70 ? 'text-green-400' : trustPct >= 40 ? 'text-yellow-400' : 'text-red-400';
+            const nameShort  = s.strategy_name.length > 22 ? s.strategy_name.slice(0,20)+'…' : s.strategy_name;
+            return `<div class="flex items-center gap-2 text-xs py-1 border-b ${rowBg} last:border-0 cursor-pointer hover:bg-gray-800 rounded px-1"
+                         onclick="window.showStrategyDetail && window.showStrategyDetail('${s.symbol}', '${s.strategy_name.replace(/'/g,"\\'")}')">
+                <span class="font-mono text-blue-400 w-10 flex-shrink-0">${s.symbol}</span>
+                <span class="flex-1 truncate text-gray-200" title="${s.strategy_name}">${nameShort}</span>
+                <span class="${pfColor} font-bold w-10 text-right">${pfGood?'✓ ':''}${s.profit_factor.toFixed(2)}</span>
+                <span class="${trustColor} w-8 text-right">${trustPct}%</span>
+            </div>`;
+        }).join('');
+    } catch(e) { console.warn('[Dashboard] loadTopStrategies failed', e); }
+}
+
+// ─── Top-level loader called from init ────────────────────────────────────
+async function loadTopDashboard() {
+    await Promise.all([loadMiniEquity(30), loadTopSymbols(), loadTopStrategies()]);
+}
+window.loadTopDashboard = loadTopDashboard;
+window.loadMiniEquity   = loadMiniEquity;

@@ -77,32 +77,79 @@ def equity_curve(days: int = Query(30, ge=1, le=365)):
 
 @app.get("/daily_log")
 def daily_log(days: int = Query(30, ge=1, le=180)):
-    """Daily P&L log from daily_profitability_log."""
+    """Daily P&L log. Uses daily_profitability_log if populated, otherwise computes from positions."""
     since = date.today() - timedelta(days=days)
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("""
-                    SELECT date, mode, total_pnl, is_profitable,
-                           trades_count, winning_trades
-                    FROM daily_profitability_log
-                    WHERE date >= %s
-                    ORDER BY date DESC, mode
-                """, (since,))
-                rows = cur.fetchall()
-        entries = []
-        for r in rows:
-            trades = r["trades_count"] or 0
-            wins = r["winning_trades"] or 0
-            entries.append({
-                "date": str(r["date"]),
-                "mode": r["mode"],
-                "total_pnl": float(r["total_pnl"]) if r["total_pnl"] is not None else 0.0,
-                "is_profitable": bool(r["is_profitable"]),
-                "trades_count": trades,
-                "winning_trades": wins,
-                "win_rate": round(wins / trades * 100, 1) if trades > 0 else None,
-            })
+                # Check if daily_profitability_log has enough data
+                cur.execute("SELECT COUNT(*) AS cnt FROM daily_profitability_log WHERE date >= %s", (since,))
+                row_count = cur.fetchone()["cnt"]
+
+                if row_count >= 5:
+                    # Use the log table enriched with fees from positions
+                    cur.execute("""
+                        SELECT d.date, d.mode, d.total_pnl, d.is_profitable,
+                               d.trades_count, d.winning_trades,
+                               COALESCE(f.total_fees, 0) AS total_fees
+                        FROM daily_profitability_log d
+                        LEFT JOIN (
+                            SELECT DATE(entry_time) AS day, mode,
+                                   SUM(COALESCE(entry_fee, 0) + COALESCE(exit_fee, 0)) AS total_fees
+                            FROM positions
+                            WHERE status = 'closed' AND entry_time >= %s
+                            GROUP BY DATE(entry_time), mode
+                        ) f ON f.day = d.date AND f.mode = d.mode
+                        WHERE d.date >= %s
+                        ORDER BY d.date DESC, d.mode
+                    """, (since, since))
+                    rows = cur.fetchall()
+                    entries = []
+                    for r in rows:
+                        trades = r["trades_count"] or 0
+                        wins   = r["winning_trades"] or 0
+                        entries.append({
+                            "date":         str(r["date"]),
+                            "mode":         r["mode"],
+                            "total_pnl":    float(r["total_pnl"]) if r["total_pnl"] is not None else 0.0,
+                            "is_profitable": bool(r["is_profitable"]),
+                            "trades_count": trades,
+                            "winning_trades": wins,
+                            "win_rate":     round(wins / trades * 100, 1) if trades > 0 else None,
+                            "total_fees":   float(r["total_fees"]),
+                        })
+                else:
+                    # Fall back: compute directly from positions table
+                    cur.execute("""
+                        SELECT DATE(entry_time) AS day,
+                               mode,
+                               SUM(realized_pnl) AS total_pnl,
+                               COUNT(*)           AS trades_count,
+                               SUM(CASE WHEN realized_pnl > 0 THEN 1 ELSE 0 END) AS winning_trades,
+                               SUM(COALESCE(entry_fee, 0) + COALESCE(exit_fee, 0)) AS total_fees
+                        FROM positions
+                        WHERE status = 'closed'
+                          AND entry_time >= %s
+                        GROUP BY DATE(entry_time), mode
+                        ORDER BY day DESC, mode
+                    """, (since,))
+                    rows = cur.fetchall()
+                    entries = []
+                    for r in rows:
+                        pnl    = float(r["total_pnl"]) if r["total_pnl"] is not None else 0.0
+                        trades = r["trades_count"] or 0
+                        wins   = r["winning_trades"] or 0
+                        entries.append({
+                            "date":         str(r["day"]),
+                            "mode":         r["mode"],
+                            "total_pnl":    pnl,
+                            "is_profitable": pnl > 0,
+                            "trades_count": trades,
+                            "winning_trades": wins,
+                            "win_rate":     round(wins / trades * 100, 1) if trades > 0 else None,
+                            "total_fees":   float(r["total_fees"]),
+                        })
+
         return {"days": days, "entries": entries, "count": len(entries)}
     except Exception as e:
         logger.error(f"daily_log error: {e}")
@@ -154,7 +201,7 @@ def streak():
 @app.get("/trust_rankings")
 def trust_rankings(
     symbol: Optional[str] = Query(None),
-    limit: int = Query(20, ge=1, le=100)
+    limit: int = Query(20, ge=1, le=500)
 ):
     """Top strategies ranked by trust_factor from symbol_strategies."""
     try:
