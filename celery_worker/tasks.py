@@ -4775,6 +4775,240 @@ def daily_refine_strategies():
         return {"status": "error", "message": str(e)}
 
 
+@celery_app.task(name='process_symbol')
+def process_symbol(symbol: str, fee_mode: str = "zero"):
+    """
+    Full evaluation cycle for a single symbol — the core automated loop:
+
+    1. Backfill 180 days of 1m candles (idempotent — skips if recent)
+    2. Assign all enabled strategies to symbol via ensemble_api
+    3. Run zero-fee backtests for top 10 unbacktested strategies
+    4. Rerank symbol_strategies by trust_factor
+    5. Generate fresh signals via signal_api
+    6. Run ensemble vote → BUY / SELL / HOLD decision
+    7. Execute paper trade if BUY decision passes guardrails
+    8. Log outcome to cycle_log table (created inline if absent)
+
+    Designed to run every 5 minutes per symbol via beat schedule.
+    Also triggered on-demand by /force-refresh/{symbol} in portfolio_api.
+    """
+    try:
+        logger.info("process_symbol_start", symbol=symbol)
+        host       = settings.service_host
+        ohlcv_base = f"http://{host}:{settings.port_ohlcv_api}"
+        ens_base   = f"http://{host}:{settings.port_ensemble_api}"
+        bt_base    = f"http://{host}:{settings.port_backtest_api}"
+        sig_base   = f"http://{host}:{settings.port_signal_api}"
+        trade_base = f"http://{host}:{settings.port_trading_api}"
+        steps      = []
+
+        # ── Step 1: Backfill (only if < 1000 recent 1m candles) ─────────────
+        try:
+            br = requests.post(
+                f"{ohlcv_base}/backfill/{symbol}",
+                json={"days": 180},
+                timeout=30,
+            )
+            steps.append({"step": "backfill", "status": "ok" if br.status_code == 200 else "skip", "code": br.status_code})
+        except Exception as e:
+            steps.append({"step": "backfill", "status": "error", "error": str(e)})
+
+        # ── Step 2: Assign all enabled strategies ────────────────────────────
+        try:
+            ar = requests.post(f"{ens_base}/assign-all-strategies/{symbol}", timeout=30)
+            assigned = ar.json().get("assigned", 0) if ar.status_code == 200 else 0
+            steps.append({"step": "assign_strategies", "status": "ok", "assigned": assigned})
+        except Exception as e:
+            steps.append({"step": "assign_strategies", "status": "error", "error": str(e)})
+            assigned = 0
+
+        # ── Step 3: Backtest top strategies that lack recent results ─────────
+        bt_count = 0
+        try:
+            with get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT ss.strategy_id, s.name
+                        FROM symbol_strategies ss
+                        JOIN strategies s ON s.id = ss.strategy_id
+                        WHERE ss.symbol = %s
+                          AND ss.status = 'active'
+                          AND (ss.last_backtest_at IS NULL
+                               OR ss.last_backtest_at < NOW() - INTERVAL '24 hours')
+                        ORDER BY ss.trust_factor DESC NULLS LAST
+                        LIMIT 10
+                    """, (symbol,))
+                    strats_to_test = cur.fetchall()
+
+            for row in strats_to_test:
+                try:
+                    resp = requests.post(
+                        f"{bt_base}/run",
+                        json={
+                            "symbol": symbol,
+                            "strategy_id": row["strategy_id"],
+                            "fee_mode": fee_mode,
+                            "days": 90,
+                        },
+                        timeout=60,
+                    )
+                    if resp.status_code == 200:
+                        bt_count += 1
+                except Exception:
+                    pass
+            steps.append({"step": "backtest", "status": "ok", "count": bt_count})
+        except Exception as e:
+            steps.append({"step": "backtest", "status": "error", "error": str(e)})
+
+        # ── Step 4: Rerank ───────────────────────────────────────────────────
+        try:
+            rr = requests.post(f"{ens_base}/rerank/{symbol}", timeout=15)
+            steps.append({"step": "rerank", "status": "ok" if rr.status_code == 200 else "error"})
+        except Exception as e:
+            steps.append({"step": "rerank", "status": "error", "error": str(e)})
+
+        # ── Step 5: Generate signals ─────────────────────────────────────────
+        try:
+            sgr = requests.post(
+                f"{sig_base}/signals/generate",
+                params={"symbol": symbol, "force": "true"},
+                timeout=30,
+            )
+            sig_count = sgr.json().get("signals_generated", 0) if sgr.status_code == 200 else 0
+            steps.append({"step": "generate_signals", "status": "ok", "count": sig_count})
+        except Exception as e:
+            steps.append({"step": "generate_signals", "status": "error", "error": str(e)})
+
+        # ── Step 6: Ensemble vote ────────────────────────────────────────────
+        decision = "HOLD"
+        confidence = 0.0
+        try:
+            er = requests.post(
+                f"{ens_base}/decide",
+                json={"symbol": symbol, "mode": "paper"},
+                timeout=30,
+            )
+            if er.status_code == 200:
+                ed = er.json()
+                decision   = ed.get("decision", "HOLD")
+                confidence = ed.get("confidence", 0.0)
+                steps.append({"step": "ensemble_vote", "status": "ok", "decision": decision, "confidence": confidence})
+            else:
+                steps.append({"step": "ensemble_vote", "status": "error", "code": er.status_code})
+        except Exception as e:
+            steps.append({"step": "ensemble_vote", "status": "error", "error": str(e)})
+
+        # ── Step 7: Execute paper trade if BUY with sufficient confidence ────
+        trade_id = None
+        if decision == "BUY" and confidence >= 0.55:
+            try:
+                # Compute size: 5% of available paper capital
+                with get_connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("""
+                            SELECT available_capital FROM portfolio_snapshots
+                            WHERE mode = 'paper' ORDER BY timestamp DESC LIMIT 1
+                        """)
+                        snap = cur.fetchone()
+                        available = float(snap["available_capital"]) if snap else 100.0
+                        cur.execute("""
+                            SELECT close FROM ohlcv_1m
+                            WHERE symbol = %s ORDER BY time DESC LIMIT 1
+                        """, (symbol,))
+                        price_row = cur.fetchone()
+                        current_px = float(price_row["close"]) if price_row else None
+
+                if not current_px:
+                    steps.append({"step": "execute_trade", "status": "skip", "reason": "no price data"})
+                else:
+                    alloc_capital = min(available * 0.05, available)
+                    amount = alloc_capital / current_px
+                    tr = requests.post(
+                        f"{trade_base}/execute",
+                        json={
+                            "symbol": symbol,
+                            "side":   "buy",
+                            "amount": round(amount, 8),
+                            "mode":   "paper",
+                            "position_type": "ensemble",
+                            "stop_loss_pct": 3.0,
+                            "take_profit_pct": 6.0,
+                        },
+                        timeout=30,
+                    )
+                    if tr.status_code == 200:
+                        trade_id = tr.json().get("trade", {}).get("position_id")
+                        steps.append({"step": "execute_trade", "status": "ok", "position_id": trade_id})
+                    else:
+                        steps.append({"step": "execute_trade", "status": "skip", "reason": tr.text[:100]})
+            except Exception as e:
+                steps.append({"step": "execute_trade", "status": "error", "error": str(e)})
+        else:
+            steps.append({"step": "execute_trade", "status": "skip", "reason": f"{decision} conf={confidence:.2f}"})
+
+        # ── Step 8: Persist cycle log ────────────────────────────────────────
+        try:
+            with get_connection() as conn:
+                with conn.cursor() as cur:
+                    # Create table on first run
+                    cur.execute("""
+                        CREATE TABLE IF NOT EXISTS cycle_log (
+                            id          SERIAL PRIMARY KEY,
+                            symbol      TEXT NOT NULL,
+                            decision    TEXT,
+                            confidence  FLOAT,
+                            trade_id    INTEGER,
+                            steps       JSONB,
+                            ran_at      TIMESTAMPTZ DEFAULT NOW()
+                        )
+                    """)
+                    import json as _json
+                    cur.execute("""
+                        INSERT INTO cycle_log (symbol, decision, confidence, trade_id, steps)
+                        VALUES (%s, %s, %s, %s, %s)
+                    """, (symbol, decision, confidence, trade_id, _json.dumps(steps)))
+                    conn.commit()
+        except Exception as log_err:
+            logger.warning("cycle_log_error", symbol=symbol, error=str(log_err))
+
+        logger.info("process_symbol_complete", symbol=symbol, decision=decision,
+                    confidence=confidence, trade_id=trade_id, steps=len(steps))
+        return {
+            "status":    "success",
+            "symbol":    symbol,
+            "decision":  decision,
+            "confidence": confidence,
+            "trade_id":  trade_id,
+            "steps":     steps,
+        }
+
+    except Exception as e:
+        logger.error("process_symbol_error", symbol=symbol, error=str(e))
+        return {"status": "error", "symbol": symbol, "message": str(e)}
+
+
+@celery_app.task(name='process_all_symbols')
+def process_all_symbols():
+    """
+    Every 5 minutes: fire process_symbol for every active symbol.
+    Uses apply_async so all symbols run in parallel across workers.
+    """
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT symbol FROM symbols WHERE active = TRUE ORDER BY symbol")
+                symbols = [row["symbol"] for row in cur.fetchall()]
+
+        logger.info("process_all_symbols_dispatch", count=len(symbols))
+        for sym in symbols:
+            celery_app.send_task("process_symbol", args=[sym])
+
+        return {"status": "dispatched", "symbols": len(symbols)}
+    except Exception as e:
+        logger.error("process_all_symbols_error", error=str(e))
+        return {"status": "error", "message": str(e)}
+
+
 @celery_app.task(name='reevaluate_strategies')
 def reevaluate_strategies():
     """
@@ -4832,6 +5066,12 @@ def reevaluate_strategies():
 
 # Configure Celery Beat schedule (dynamic based on SYSTEM_MODE)
 celery_app.conf.beat_schedule = {
+    # ── Core: full evaluation cycle for all active symbols every 5 min ──────
+    'process-all-symbols': {
+        'task': 'process_all_symbols',
+        'schedule': 300.0,  # Every 5 minutes
+    },
+
     # Fetch 1-minute candles every 60 seconds
     'fetch-1min-candles': {
         'task': 'fetch_1min_candles',

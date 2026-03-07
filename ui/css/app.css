@@ -206,6 +206,14 @@ body { overscroll-behavior: none; }
     .tab-btn { padding: 8px 10px; font-size: 12px; }
     .symbol-card { padding: 10px; }
 }
+
+/* ─── Symbol card: 4-col action grid collapses to 2×2 on tiny screens ─── */
+@media (max-width: 380px) {
+    .symbol-card .grid-cols-4 { grid-template-columns: repeat(2, 1fr); }
+    .symbol-card .text-3xl { font-size: 1.5rem; }
+    .symbol-card .text-2xl { font-size: 1.25rem; }
+}
+
 /* Collapsible Sections */
 .collapsible-content {
     max-height: 2000px;

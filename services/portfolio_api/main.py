@@ -944,11 +944,23 @@ def get_symbol_stats(mode: str = Query("paper", regex="^(paper|live)$")):
                         COALESCE(st.wins_30d, 0) as wins_30d,
                         COALESCE(st.losses_30d, 0) as losses_30d,
                         ROUND(CAST(st.pnl_30d AS NUMERIC), 2) as pnl_30d,
-                        ROUND(CAST(st.fees_30d AS NUMERIC), 4) as fees_30d
+                        ROUND(CAST(st.fees_30d AS NUMERIC), 4) as fees_30d,
+                        COALESCE(tr.best_trust, 0.0) as best_trust_factor,
+                        COALESCE(tr.best_pf, 0.0) as best_profit_factor,
+                        COALESCE(tr.strategy_trades, 0) as strategy_trades
                     FROM symbols s
                     LEFT JOIN symbol_stats st ON s.symbol = st.symbol
+                    LEFT JOIN (
+                        SELECT symbol,
+                               MAX(trust_factor) AS best_trust,
+                               MAX(profit_factor) AS best_pf,
+                               SUM(total_trades) AS strategy_trades
+                        FROM symbol_strategies
+                        WHERE status = 'active'
+                        GROUP BY symbol
+                    ) tr ON tr.symbol = s.symbol
                     WHERE s.status = 'active'
-                    ORDER BY s.symbol
+                    ORDER BY COALESCE(tr.best_trust, 0.0) DESC, s.symbol
                 """, (mode,))
                 
                 stats = [dict(row) for row in cur.fetchall()]

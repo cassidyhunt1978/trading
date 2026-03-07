@@ -167,18 +167,18 @@ def execute_live_trade(trade: TradeRequest) -> dict:
         logger.error("live_trade_failed", error=str(e))
         raise
 
+# Paper trading uses a flat 0.1% per-side fee (0.2% round-trip).
+# This matches the evaluation framework: evaluate raw edge first,
+# then apply real Kraken fees only when promoting to live.
+PAPER_FEE_RATE = 0.001  # 0.1% per side
+
 def execute_paper_trade(trade: TradeRequest) -> dict:
     """Execute a simulated paper trade"""
-    from shared.fee_tiers import get_kraken_fees, get_trading_volume_30d
-    
     # Get current market price
     current_price = trade.price if trade.price else get_current_price(trade.symbol)
-    
-    # Calculate fees based on volume tier
-    volume_30d = get_trading_volume_30d(mode=trade.mode)
-    fees = get_kraken_fees(volume_30d)
-    fee_pct = fees['maker_fee'] if trade.price else fees['taker_fee']  # Limit vs market
-    fee_amount = trade.amount * current_price * fee_pct
+
+    # Flat 0.1% paper fee — real fees applied at live promotion
+    fee_amount = trade.amount * current_price * PAPER_FEE_RATE
     
     # Calculate total cost including fees
     if trade.side == 'buy':
@@ -435,8 +435,8 @@ def close_paper_position(position: dict, reason: str) -> dict:
     
     logger.info("close_paper_values", quantity=quantity, entry_price=entry_price, exit_price=exit_price)
     
-    # Calculate exit fee
-    exit_fee = quantity * exit_price * 0.0026  # Market order fee
+    # Flat 0.1% paper exit fee — mirrors entry
+    exit_fee = quantity * exit_price * PAPER_FEE_RATE
     
     # Calculate P&L (for BUY positions with quantity > 0)
     pnl = (exit_price - entry_price) * quantity - exit_fee - entry_fee
@@ -563,6 +563,23 @@ def get_stats(mode: str = Query("paper", regex="^(paper|live)$")):
     except Exception as e:
         logger.error("stats_error", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/run-cycle")
+def run_full_cycle():
+    """Trigger process_all_symbols Celery task immediately (manual override of beat schedule)."""
+    try:
+        from celery import Celery
+        celery_app = Celery(
+            "trading_celery",
+            broker=os.environ.get("CELERY_BROKER_URL", "redis://localhost:6379/0"),
+        )
+        task = celery_app.send_task("process_all_symbols")
+        return {"status": "triggered", "task_id": task.id}
+    except Exception as e:
+        logger.error("run_cycle_error", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 if __name__ == "__main__":
     import uvicorn

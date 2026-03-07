@@ -477,52 +477,84 @@ async def discover_symbols(
     """Use AI to discover promising trading symbols"""
     try:
         logger.info("discovering_symbols", min_volume=min_volume_usd)
-        
-        # Get all available symbols from database
+
+        # Get all known symbols from database
         with get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT * FROM symbols WHERE active = TRUE")
-                known_symbols = [dict(row) for row in cur.fetchall()]
-        
-        # For now, return a curated list based on market analysis
-        # In production, this would use real-time social media scraping
-        
-        discovered = [
-            {
-                "symbol": "SOL/USDT",
-                "reason": "Strong L1 blockchain with growing ecosystem",
-                "volume_24h_usd": 5000000000,
-                "social_score": 85,
-                "recommendation": "add"
-            },
-            {
-                "symbol": "AVAX/USDT", 
-                "reason": "Enterprise adoption increasing, subnet activity growing",
-                "volume_24h_usd": 800000000,
-                "social_score": 72,
-                "recommendation": "monitor"
-            },
-            {
-                "symbol": "MATIC/USDT",
-                "reason": "Polygon zkEVM gaining traction, institutional interest",
-                "volume_24h_usd": 600000000,
-                "social_score": 68,
-                "recommendation": "monitor"
+                cur.execute("SELECT symbol FROM symbols WHERE active = TRUE")
+                known_symbols = [row['symbol'] for row in cur.fetchall()]
+
+        if not anthropic_client:
+            # Fallback: return known active symbols as "monitor" candidates
+            return {
+                "status": "success",
+                "source": "database_fallback",
+                "discovered": [
+                    {"symbol": s, "reason": "Already tracked", "volume_24h_usd": 0, "social_score": 50, "recommendation": "monitor"}
+                    for s in known_symbols[:max_results]
+                ],
+                "count": min(len(known_symbols), max_results)
             }
-        ]
-        
-        # Filter by volume
-        filtered = [s for s in discovered if s['volume_24h_usd'] >= min_volume_usd]
-        
+
+        # Ask Claude to suggest high-potential crypto symbols
+        prompt = f"""You are a crypto market analyst. Suggest up to {max_results} cryptocurrency trading pairs that show strong breakout potential right now (2025).
+
+Focus on:
+- High liquidity (>$1M/day volume)
+- Recent positive momentum or breakout patterns
+- Strong fundamentals or upcoming catalysts
+- Available on Kraken exchange (USDT or USD pairs)
+
+Already tracked symbols (prefer to suggest NEW ones not in this list, or upgrade "monitor" to "add"):
+{', '.join(known_symbols)}
+
+Respond ONLY with a JSON array (no markdown, no explanation), each item having:
+  symbol (e.g. "SOL/USDT"), reason (1 sentence), volume_24h_usd (integer estimate), social_score (0-100), recommendation ("add" or "monitor")
+
+Example: [{{"symbol":"SOL/USDT","reason":"...","volume_24h_usd":5000000000,"social_score":85,"recommendation":"add"}}]"""
+
+        response = anthropic_client.messages.create(
+            model="claude-3-haiku-20240307",
+            max_tokens=1024,
+            messages=[{"role": "user", "content": prompt}]
+        )
+
+        raw = response.content[0].text.strip()
+        # Strip any markdown code fences if present
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        raw = raw.strip()
+
+        import json as _json
+        discovered = _json.loads(raw)
+        if not isinstance(discovered, list):
+            raise ValueError("AI did not return a list")
+
+        # Validate schema and filter by volume
+        filtered = []
+        for item in discovered:
+            if not isinstance(item, dict) or 'symbol' not in item:
+                continue
+            item['volume_24h_usd'] = int(item.get('volume_24h_usd', 0))
+            item['social_score'] = int(item.get('social_score', 50))
+            item['recommendation'] = str(item.get('recommendation', 'monitor'))
+            if item['volume_24h_usd'] >= min_volume_usd:
+                filtered.append(item)
+
+        logger.info("symbols_discovered", count=len(filtered), source="claude")
         return {
             "status": "success",
+            "source": "claude",
             "discovered": filtered[:max_results],
-            "count": len(filtered)
+            "count": len(filtered[:max_results])
         }
-    
+
     except Exception as e:
         logger.error("symbol_discovery_error", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/explain-trade")
 async def explain_trade(

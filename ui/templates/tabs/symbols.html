@@ -1,6 +1,19 @@
 {% from 'components/macros.html' import loading_state %}
 
         <div id="tab-symbols" class="tab-content p-4">
+            <!-- Toolbar -->
+            <div class="flex flex-wrap items-center gap-3 mb-4">
+                <h2 class="text-xl font-bold flex-1">Symbols</h2>
+                <label class="flex items-center gap-2 text-sm text-gray-400 cursor-pointer select-none">
+                    <input type="checkbox" id="hide-zeros-toggle" checked onchange="renderSymbolCardsFromCache()"
+                           class="w-4 h-4 accent-blue-500">
+                    Hide no-data
+                </label>
+                <button onclick="runFullCycle(this)"
+                        class="px-4 py-1.5 bg-purple-700 hover:bg-purple-600 rounded-lg text-sm font-semibold whitespace-nowrap">
+                    ⚡ Run Full Cycle
+                </button>
+            </div>
             <!-- Symbol Cards Grid -->
             <div id="symbols-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 <!-- Cards will be generated here -->
