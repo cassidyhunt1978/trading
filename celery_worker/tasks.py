@@ -5062,14 +5062,74 @@ def reevaluate_strategies():
         return {"status": "error", "message": str(e)}
 
 
+@celery_app.task(name='auto_unblock_symbols')
+def auto_unblock_symbols():
+    """
+    Daily: re-activate symbol_strategies rows that were deactivated due to poor
+    performance, if the most recent 30-day backtest PF improved above 0.9.
+    Also resets the runtime blacklist implicitly — any symbol whose 30d P&L
+    rises above -$5 will no longer be blacklisted on the next ensemble run.
+
+    Runs once per day via beat schedule.
+    """
+    try:
+        unblocked = []
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                # Find inactive strategies where the last backtest shows PF > 0.9
+                cur.execute("""
+                    SELECT ss.id, ss.symbol, ss.strategy_id,
+                           ss.profit_factor, ss.trust_factor, ss.total_trades
+                    FROM symbol_strategies ss
+                    WHERE ss.status = 'inactive'
+                      AND ss.profit_factor >= 0.9
+                      AND ss.last_backtest_at >= NOW() - INTERVAL '7 days'
+                """)
+                candidates = cur.fetchall()
+
+                for row in candidates:
+                    # Double-check: 30d live P&L for this symbol must be > -$5
+                    cur.execute("""
+                        SELECT COALESCE(SUM(realized_pnl), 0) AS pnl_30d
+                        FROM positions
+                        WHERE symbol = %s
+                          AND mode  = 'paper'
+                          AND status = 'closed'
+                          AND entry_time >= NOW() - INTERVAL '30 days'
+                    """, (row['symbol'],))
+                    pnl = float(cur.fetchone()['pnl_30d'])
+
+                    if pnl > -5.0:
+                        cur.execute("""
+                            UPDATE symbol_strategies
+                            SET status = 'active', updated_at = NOW()
+                            WHERE id = %s
+                        """, (row['id'],))
+                        unblocked.append({
+                            'symbol':      row['symbol'],
+                            'strategy_id': row['strategy_id'],
+                            'pf':          float(row['profit_factor']),
+                            'pnl_30d':     pnl,
+                        })
+
+                conn.commit()
+
+        logger.info("auto_unblock_complete", unblocked=len(unblocked), detail=unblocked)
+        return {"status": "ok", "unblocked": len(unblocked), "detail": unblocked}
+
+    except Exception as e:
+        logger.error("auto_unblock_error", error=str(e))
+        return {"status": "error", "message": str(e)}
+
+
 # ==================== CELERY BEAT SCHEDULE ====================
 
 # Configure Celery Beat schedule (dynamic based on SYSTEM_MODE)
 celery_app.conf.beat_schedule = {
-    # ── Core: full evaluation cycle for all active symbols every 5 min ──────
+    # ── Core: full evaluation cycle for all active symbols every hour ────────
     'process-all-symbols': {
         'task': 'process_all_symbols',
-        'schedule': 300.0,  # Every 5 minutes
+        'schedule': 3600.0,  # Every 1 hour
     },
 
     # Fetch 1-minute candles every 60 seconds
@@ -5293,6 +5353,13 @@ celery_app.conf.beat_schedule = {
     'generate-daily-report': {
         'task': 'generate_daily_report',
         'schedule': crontab(hour=3, minute=0),
+    },
+
+    # Auto-unblock symbols whose performance has improved
+    # Runs daily at 5 AM UTC — after nightly report, before discovery
+    'auto-unblock-symbols': {
+        'task': 'auto_unblock_symbols',
+        'schedule': crontab(hour=5, minute=0),
     },
 }
 

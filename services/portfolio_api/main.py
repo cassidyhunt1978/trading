@@ -1277,6 +1277,41 @@ def daily_allocation(req: DailyAllocationRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/reset_blocks")
+def reset_blocks(symbol: str = Query(None, description="Symbol to unblock (e.g. BTC), or omit for all")):
+    """
+    Re-activate symbol_strategies rows that are currently inactive.
+    Use this to manually clear blocks after verifying strategy improvements.
+    If `symbol` is provided, only that symbol is unblocked; otherwise all.
+    """
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                if symbol:
+                    sym = symbol.upper()
+                    cur.execute(
+                        """UPDATE symbol_strategies
+                              SET status = 'active', updated_at = NOW()
+                            WHERE symbol = %s AND status = 'inactive'
+                        RETURNING symbol, strategy_id""",
+                        (sym,)
+                    )
+                else:
+                    cur.execute(
+                        """UPDATE symbol_strategies
+                              SET status = 'active', updated_at = NOW()
+                            WHERE status = 'inactive'
+                        RETURNING symbol, strategy_id"""
+                    )
+                rows = cur.fetchall()
+                conn.commit()
+        unblocked = [{"symbol": r["symbol"], "strategy_id": r["strategy_id"]} for r in rows]
+        logger.info("reset_blocks_ok", symbol=symbol, count=len(unblocked))
+        return {"status": "ok", "unblocked": unblocked, "count": len(unblocked)}
+    except Exception as e:
+        logger.error("reset_blocks_error", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/force-refresh/{symbol}")
 async def force_refresh_symbol(symbol: str, background_tasks: BackgroundTasks):

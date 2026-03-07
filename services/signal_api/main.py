@@ -1742,6 +1742,98 @@ async def get_consensus_stats():
         logger.error("get_consensus_stats_error", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/export_trading_strategy")
+def export_trading_strategy(
+    symbol: str = Query(..., description="Symbol to get top strategy for, e.g. BTC"),
+    limit: int = Query(5, ge=1, le=20, description="Number of top strategies to return"),
+):
+    """
+    Return the top-ranked strategies for a symbol in charts-compatible format.
+
+    The charts StrategyOverlay fetches this endpoint when a symbol is loaded so
+    the chart modal can:
+      1. Run runSignalScan on the returned strategy rules
+      2. Render buy/sell arrows as a strategy overlay on the chart
+      3. Let the user toggle each strategy's visibility
+
+    Response shape matches /charts-strategies so both endpoints are interchangeable.
+    """
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                # Top strategies for this symbol ordered by trust_factor DESC
+                cur.execute("""
+                    SELECT
+                        ss.id,
+                        ss.symbol,
+                        s.name           AS strategy_name,
+                        s.indicator_logic,
+                        s.parameters,
+                        ss.trust_factor,
+                        ss.profit_factor,
+                        ss.win_rate,
+                        ss.total_trades,
+                        ss.last_backtest_at,
+                        ss.rank
+                    FROM symbol_strategies ss
+                    JOIN strategies s ON s.id = ss.strategy_id
+                    WHERE ss.symbol = %s
+                      AND ss.status = 'active'
+                      AND s.enabled  = true
+                    ORDER BY ss.trust_factor DESC NULLS LAST,
+                             ss.profit_factor  DESC NULLS LAST
+                    LIMIT %s
+                """, (symbol.upper(), limit))
+                rows = cur.fetchall()
+
+        if not rows:
+            logger.info("export_trading_strategy_empty", symbol=symbol)
+            return {"strategies": [], "count": 0, "symbol": symbol}
+
+        import json as _json
+        strategies = []
+        for row in rows:
+            logic = row["indicator_logic"]
+            if isinstance(logic, str):
+                try:
+                    logic = _json.loads(logic)
+                except Exception:
+                    logic = {}
+
+            # Build chart-compatible entry_rules / exit_rules from indicator_logic
+            entry_rules = logic.get("entry") or logic.get("entry_rules") or logic
+            exit_rules  = logic.get("exit")  or logic.get("exit_rules")  or {}
+            risk_params = logic.get("risk")  or logic.get("risk_params")  or {}
+
+            strategies.append({
+                "id":               row["id"],
+                "symbol":           row["symbol"],
+                "strategy_name":    row["strategy_name"],
+                "entry_rules":      entry_rules,
+                "exit_rules":       exit_rules,
+                "risk_params":      risk_params,
+                "backtest_summary": {
+                    "profit_factor": float(row["profit_factor"] or 0),
+                    "win_rate":      float(row["win_rate"]      or 0),
+                    "trade_count":   int(row["total_trades"]    or 0),
+                },
+                "trust_factor":     float(row["trust_factor"]  or 0),
+                "rank":             row["rank"],
+                "last_backtest_at": row["last_backtest_at"].isoformat() if row["last_backtest_at"] else None,
+            })
+
+        console_log = [{"symbol": s["symbol"], "name": s["strategy_name"],
+                        "trust": s["trust_factor"], "pf": s["backtest_summary"]["profit_factor"]}
+                       for s in strategies]
+        logger.info("export_trading_strategy_ok", symbol=symbol, count=len(strategies),
+                    top=console_log[:3])
+        return {"strategies": strategies, "count": len(strategies), "symbol": symbol}
+
+    except Exception as e:
+        logger.error("export_trading_strategy_error", symbol=symbol, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("services.signal_api.main:app", host="0.0.0.0", port=settings.port_signal_api, workers=4)
