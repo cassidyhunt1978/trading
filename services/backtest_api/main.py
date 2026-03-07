@@ -2,7 +2,7 @@
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Literal
 from datetime import datetime, timedelta
 import sys
 import os
@@ -39,6 +39,7 @@ class BacktestRequest(BaseModel):
     position_size_pct: float = 100.0  # % of capital per trade
     stop_loss_pct: Optional[float] = 5.0
     take_profit_pct: Optional[float] = 10.0
+    fee_mode: Literal["zero", "actual"] = "zero"  # "zero"=raw edge; "actual"=realistic fees
 
 class BacktestResult(BaseModel):
     backtest_id: int
@@ -149,7 +150,8 @@ async def run_backtest(request: BacktestRequest):
             initial_capital=request.initial_capital,
             position_size_pct=request.position_size_pct,
             stop_loss_pct=request.stop_loss_pct,
-            take_profit_pct=request.take_profit_pct
+            take_profit_pct=request.take_profit_pct,
+            fee_mode=getattr(request, 'fee_mode', 'zero'),
         )
         
         # Save results to database
@@ -193,12 +195,17 @@ def get_strategy(strategy_id: int) -> dict:
             
             return dict(strategy)
 
-def simulate_backtest(strategy: dict, candles: List[dict], 
+def simulate_backtest(strategy: dict, candles: List[dict],
                      initial_capital: float, position_size_pct: float,
                      stop_loss_pct: Optional[float],
-                     take_profit_pct: Optional[float]) -> dict:
-    """Simulate backtesting a strategy"""
+                     take_profit_pct: Optional[float],
+                     fee_mode: str = "zero") -> dict:
+    """Simulate backtesting a strategy.
+    fee_mode='zero'   → no fees (evaluate raw edge, used for paper evaluation)
+    fee_mode='actual' → realistic Kraken tiered fees (used for live risk sizing)
+    """
     from shared.fee_tiers import get_kraken_fees, calculate_fee
+    _zero_fees = (fee_mode == "zero")
     
     # Extract strategy parameters
     params = strategy.get('parameters', {})
@@ -310,10 +317,10 @@ def simulate_backtest(strategy: dict, candles: List[dict],
     equity_curve = [initial_capital]
     total_volume = 0  # Track volume for fee tier calculation
     
-    # Get initial fee tier (starts at lowest)
+    # Get initial fee tier (starts at lowest) — ignored when fee_mode='zero'
     fees = get_kraken_fees(0)
-    maker_fee = fees['maker_fee']
-    taker_fee = fees['taker_fee']
+    maker_fee = 0.0 if _zero_fees else fees['maker_fee']
+    taker_fee = 0.0 if _zero_fees else fees['taker_fee']
     
     for i in range(len(df)):
         candle = df.iloc[i]
@@ -336,7 +343,7 @@ def simulate_backtest(strategy: dict, candles: List[dict],
                 # Close position
                 exit_price = candle['close']
                 exit_value = position['amount'] * exit_price
-                exit_fee = calculate_fee(exit_value, taker_fee)
+                exit_fee = 0.0 if _zero_fees else calculate_fee(exit_value, taker_fee)
                 
                 pnl = exit_value - (position['amount'] * position['entry_price']) - position['entry_fee'] - exit_fee
                 capital += exit_value - exit_fee
@@ -371,15 +378,16 @@ def simulate_backtest(strategy: dict, candles: List[dict],
                 entry_price = candle['close']
                 position_value = capital * (position_size_pct / 100)
                 amount = position_value / entry_price
-                entry_fee = calculate_fee(position_value, taker_fee)
-                
+                entry_fee = 0.0 if _zero_fees else calculate_fee(position_value, taker_fee)
+
                 capital -= (position_value + entry_fee)
                 total_volume += position_value
-                
-                # Update fee tier based on cumulative volume
-                fees = get_kraken_fees(total_volume)
-                maker_fee = fees['maker_fee']
-                taker_fee = fees['taker_fee']
+
+                # Update fee tier based on cumulative volume (only when fees are active)
+                if not _zero_fees:
+                    fees = get_kraken_fees(total_volume)
+                    maker_fee = fees['maker_fee']
+                    taker_fee = fees['taker_fee']
                 
                 position = {
                     'entry_price': entry_price,
@@ -402,7 +410,7 @@ def simulate_backtest(strategy: dict, candles: List[dict],
         last_candle = df.iloc[-1]
         exit_price = last_candle['close']
         exit_value = position['amount'] * exit_price
-        exit_fee = calculate_fee(exit_value, taker_fee)
+        exit_fee = 0.0 if _zero_fees else calculate_fee(exit_value, taker_fee)
         
         pnl = exit_value - (position['amount'] * position['entry_price']) - position['entry_fee'] - exit_fee
         capital += exit_value - exit_fee

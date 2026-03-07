@@ -1,10 +1,12 @@
 """Strategy Config API - Expose strategy parameters and manage overrides"""
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Dict, Optional, Union, Any
 import sys
 import os
+import requests as _requests
+from datetime import datetime, timedelta
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -1495,8 +1497,36 @@ def get_charts_strategies():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _trigger_backtests_for_strategy(strategy_id: int, symbols: list):
+    """
+    Background: run fee_mode='zero' backtests for the imported strategy on
+    every active symbol so trust_factor gets populated immediately.
+    Runs in a fire-and-forget background task; failures are logged but ignored.
+    """
+    backtest_base = f"http://{settings.service_host}:{settings.port_backtest_api}"
+    end_date   = datetime.utcnow().strftime("%Y-%m-%d")
+    start_date = (datetime.utcnow() - timedelta(days=90)).strftime("%Y-%m-%d")
+    for sym in symbols:
+        try:
+            _requests.post(
+                f"{backtest_base}/run",
+                json={
+                    "strategy_id": strategy_id,
+                    "symbol":      sym,
+                    "start_date":  start_date,
+                    "end_date":    end_date,
+                    "fee_mode":    "zero",
+                },
+                timeout=30,
+            )
+        except Exception as _e:
+            logger.warning("background_backtest_failed",
+                           strategy_id=strategy_id, symbol=sym, error=str(_e))
+
+
 @app.post("/import_charts_strategy")
-def import_charts_strategy(payload: ChartsStrategyImport):
+def import_charts_strategy(payload: ChartsStrategyImport,
+                           background_tasks: BackgroundTasks):
     """
     Accept a strategy exported from a chart component as JSON and:
     1. Insert into charts_strategies staging table (idempotent on strategy_name)
@@ -1618,6 +1648,14 @@ def import_charts_strategy(payload: ChartsStrategyImport):
                     strategy_id=strategy_id,
                     symbols_assigned=assigned_count)
 
+        # Kick off zero-fee backtests in the background so trust_factor
+        # gets populated without blocking the import response.
+        background_tasks.add_task(
+            _trigger_backtests_for_strategy,
+            strategy_id,
+            active_symbols[:10],  # limit to top 10 to avoid overload
+        )
+
         return {
             "status": "success",
             "strategy_id": strategy_id,
@@ -1627,6 +1665,7 @@ def import_charts_strategy(payload: ChartsStrategyImport):
             "trust_factor": round(trust, 4),
             "profit_factor": pf,
             "win_rate_pct": wr,
+            "backtests_triggered": min(len(active_symbols), 10),
         }
 
     except Exception as e:

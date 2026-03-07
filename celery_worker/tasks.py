@@ -4647,6 +4647,133 @@ def generate_daily_report():
         return {"status": "error", "message": str(e)}
 
 
+@celery_app.task(name='daily_refine_strategies')
+def daily_refine_strategies():
+    """
+    Daily refinement pass (4 AM UTC).
+
+    1. Re-runs zero-fee backtests for all active symbol_strategies
+       — fee_mode='zero' reveals true edge without fee drag killing results
+    2. Updates trust_factor = PF × (WR/100), profit_factor, win_rate
+    3. Prunes strategies where trust_factor < 0.10 AND total_trades < 5
+    4. Re-ranks via ensemble_api /rerank
+    5. Logs summary
+
+    Uses fee_mode='zero' intentionally — fees are applied at execution time
+    by the ensemble layer, not during individual strategy evaluation.
+    """
+    try:
+        logger.info("task_started", task="daily_refine_strategies")
+        backtest_base = f"http://{settings.service_host}:{settings.port_backtest_api}"
+        ensemble_base = f"http://{settings.service_host}:{settings.port_ensemble_api}"
+
+        end_date   = datetime.utcnow().strftime("%Y-%m-%d")
+        start_date = (datetime.utcnow() - timedelta(days=90)).strftime("%Y-%m-%d")
+
+        # Fetch all active symbol_strategy pairs
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT ss.id, ss.symbol, ss.strategy_id,
+                           ss.trust_factor, ss.total_trades
+                    FROM symbol_strategies ss
+                    WHERE ss.status = 'active'
+                    ORDER BY ss.symbol, ss.trust_factor DESC
+                """)
+                pairs = cur.fetchall()
+
+        logger.info("refine_pairs_loaded", count=len(pairs))
+
+        updated = pruned = errors = 0
+
+        for pair in pairs:
+            sym     = pair["symbol"]
+            strat_id = pair["strategy_id"]
+            try:
+                resp = requests.post(
+                    f"{backtest_base}/run",
+                    json={
+                        "strategy_id": strat_id,
+                        "symbol":      sym,
+                        "start_date":  start_date,
+                        "end_date":    end_date,
+                        "fee_mode":    "zero",
+                    },
+                    timeout=60,
+                )
+                if resp.status_code != 200:
+                    errors += 1
+                    continue
+
+                r          = resp.json()
+                pf         = float(r.get("total_return_pct", 0)) / 100 + 1.0
+                wr         = float(r.get("win_rate", 0))
+                n_trades   = int(r.get("total_trades", 0))
+                pf_direct  = r.get("profit_factor")
+                if pf_direct is not None:
+                    pf = float(pf_direct)
+                trust      = round(pf * (wr / 100.0), 6)
+
+                with get_connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("""
+                            UPDATE symbol_strategies
+                            SET trust_factor  = %s,
+                                profit_factor = %s,
+                                win_rate      = %s,
+                                total_trades  = %s,
+                                last_backtest_at = NOW(),
+                                updated_at    = NOW()
+                            WHERE symbol = %s AND strategy_id = %s
+                        """, (trust, pf, wr, n_trades, sym, strat_id))
+                        conn.commit()
+                updated += 1
+
+                # Prune immediately if below threshold
+                if trust < 0.10 and n_trades < 5:
+                    with get_connection() as conn:
+                        with conn.cursor() as cur:
+                            cur.execute("""
+                                UPDATE symbol_strategies
+                                SET status = 'inactive', updated_at = NOW()
+                                WHERE symbol = %s AND strategy_id = %s
+                            """, (sym, strat_id))
+                            conn.commit()
+                    logger.info("strategy_pruned",
+                                symbol=sym, strategy_id=strat_id,
+                                trust=trust, trades=n_trades)
+                    pruned += 1
+
+            except Exception as pair_err:
+                errors += 1
+                logger.warning("refine_pair_error",
+                               symbol=sym, strategy_id=strat_id,
+                               error=str(pair_err))
+
+        # Re-rank all symbols after updates
+        symbols_to_rerank = list({p["symbol"] for p in pairs})
+        for sym in symbols_to_rerank:
+            try:
+                requests.post(f"{ensemble_base}/rerank/{sym}", timeout=15)
+            except Exception:
+                pass
+
+        logger.info("daily_refine_complete",
+                    pairs_processed=len(pairs),
+                    updated=updated, pruned=pruned, errors=errors)
+        return {
+            "status": "success",
+            "pairs_processed": len(pairs),
+            "updated": updated,
+            "pruned": pruned,
+            "errors": errors,
+        }
+
+    except Exception as e:
+        logger.error("task_error", task="daily_refine_strategies", error=str(e))
+        return {"status": "error", "message": str(e)}
+
+
 @celery_app.task(name='reevaluate_strategies')
 def reevaluate_strategies():
     """
@@ -4900,6 +5027,13 @@ celery_app.conf.beat_schedule = {
     'discover-symbols-strategies': {
         'task': 'discover_symbols_and_strategies',
         'schedule': crontab(hour=6, minute=0),
+    },
+
+    # Daily strategy refinement: zero-fee backtests, trust update, prune weak
+    # Runs at 4 AM UTC — after nightly report (3 AM), before discovery (6 AM)
+    'daily-refine-strategies': {
+        'task': 'daily_refine_strategies',
+        'schedule': crontab(hour=4, minute=0),
     },
 
     # Re-rank strategies by trust_factor every 4 hours
