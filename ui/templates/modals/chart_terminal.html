@@ -66,6 +66,12 @@
               <button id="clearSignalsBtn" class="btn btn-danger">Clear Sigs</button>
             </div>
           </div>
+          <div class="tools-section" id="stratOverlaySection" style="display:none">
+            <div class="tools-sec-label">📊 Overlay Strategies</div>
+            <div id="stratOverlayList" style="display:flex;flex-direction:column;gap:4px;padding:4px 0;max-height:160px;overflow-y:auto;font-size:11px;">
+              <!-- populated dynamically by Engine._updateStrategyOverlayPanel() -->
+            </div>
+          </div>
           <div class="tools-section">
             <div class="tools-sec-label">Drawing</div>
             <div class="tools-grid">
