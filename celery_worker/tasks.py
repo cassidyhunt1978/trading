@@ -1216,7 +1216,8 @@ def execute_ensemble_trades():
                    available=available_capital,
                    open_positions=open_ensemble_positions)
         
-        # Phase 4: Get symbol blacklist (symbols with < -$3.00 P&L in last 30 days)
+        # Phase 4: Get symbol blacklist (symbols with < -$50.00 P&L in last 30 days)
+        # Threshold raised from -$3 to -$50 — tiny losses should not block symbols
         blacklisted_symbols = set()
         with get_connection() as conn:
             with conn.cursor() as cur:
@@ -1228,7 +1229,7 @@ def execute_ensemble_trades():
                       AND signal_source = 'ensemble'
                       AND entry_time >= NOW() - INTERVAL '30 days'
                     GROUP BY symbol
-                    HAVING SUM(realized_pnl) < -3.0
+                    HAVING SUM(realized_pnl) < -50.0
                 """)
                 blacklisted_symbols = {row['symbol'] for row in cur.fetchall()}
                 if blacklisted_symbols:
@@ -1254,7 +1255,7 @@ def execute_ensemble_trades():
             if symbol in blacklisted_symbols:
                 logger.info("signal_rejected_blacklist", 
                            symbol=symbol, 
-                           reason="Symbol has <-$3 P&L in last 30 days",
+                           reason="Symbol has <-$50 P&L in last 30 days",
                            filter="phase4")
                 continue
             

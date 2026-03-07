@@ -1,5 +1,5 @@
 """Portfolio API - Capital Allocation & Position Management"""
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -1262,6 +1262,55 @@ def daily_allocation(req: DailyAllocationRequest):
 
     except Exception as e:
         logger.error("daily_allocation_error", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
+@app.post("/force-refresh/{symbol}")
+async def force_refresh_symbol(symbol: str, background_tasks: BackgroundTasks):
+    """
+    Trigger a full evaluation cycle for the given symbol:
+    1. Assign all enabled strategies to symbol (via ensemble_api)
+    2. Rerank strategies based on trust_factor
+    Returns a summary of steps triggered; backtests run asynchronously.
+    """
+    import httpx
+    steps = []
+    host = settings.service_host
+
+    try:
+        # Step 1: Assign all strategies to symbol
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                f"http://{host}:{settings.port_ensemble_api}/assign-all-strategies/{symbol}"
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                steps.append({"step": "assign_strategies", "status": "ok",
+                               "assigned": data.get("assigned", 0)})
+            else:
+                steps.append({"step": "assign_strategies", "status": "error",
+                               "detail": resp.text[:200]})
+
+        # Step 2: Rerank
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                f"http://{host}:{settings.port_ensemble_api}/rerank/{symbol}"
+            )
+            if resp.status_code == 200:
+                steps.append({"step": "rerank", "status": "ok"})
+            else:
+                steps.append({"step": "rerank", "status": "error",
+                               "detail": resp.text[:200]})
+
+        return {
+            "status": "triggered",
+            "symbol": symbol,
+            "steps": steps,
+        }
+
+    except Exception as e:
+        logger.error("force_refresh_error", symbol=symbol, error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 

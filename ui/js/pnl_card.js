@@ -1480,3 +1480,62 @@ window.displayModalPositions = displayModalPositions;
 window.loadModalPnlDetails = loadModalPnlDetails;
 window.closePositionManually = closePositionManually;
 window.executeClosePosition = executeClosePosition;
+
+// ─── Force Refresh ────────────────────────────────────────────────────────────
+async function forceRefreshSymbol(symbol) {
+    const btn = document.getElementById('force-refresh-btn');
+    const log = document.getElementById('cycle-log');
+    const progress = document.getElementById('cycle-progress');
+    const bar = document.getElementById('cycle-progress-bar');
+
+    if (!symbol) symbol = 'BTC';
+    btn.disabled = true;
+    btn.textContent = `⏳ Refreshing ${symbol}…`;
+    log.classList.remove('hidden');
+    progress.classList.remove('hidden');
+    log.innerHTML = '';
+    bar.style.width = '10%';
+
+    const addLog = (msg) => {
+        const ts = new Date().toLocaleTimeString();
+        log.innerHTML += `<div>[${ts}] ${msg}</div>`;
+        log.scrollTop = log.scrollHeight;
+    };
+
+    try {
+        addLog(`Triggering full refresh for ${symbol}…`);
+        bar.style.width = '30%';
+
+        const resp = await fetch(`http://${window.API_HOST}:8016/force-refresh/${symbol}`, {
+            method: 'POST'
+        });
+        bar.style.width = '70%';
+
+        if (!resp.ok) {
+            const err = await resp.text();
+            addLog(`❌ Error: ${err.slice(0, 120)}`);
+            return;
+        }
+
+        const data = await resp.json();
+        bar.style.width = '90%';
+
+        for (const step of (data.steps || [])) {
+            const icon = step.status === 'ok' ? '✅' : '⚠️';
+            const detail = step.assigned !== undefined ? ` (${step.assigned} strategies)` : '';
+            addLog(`${icon} ${step.step}${detail}`);
+        }
+
+        bar.style.width = '100%';
+        addLog(`Done — refreshing P&L card…`);
+        setTimeout(() => refreshPnlCard(), 1500);
+    } catch (e) {
+        addLog(`❌ ${e.message}`);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = `⚡ Force Refresh`;
+        setTimeout(() => { bar.style.width = '0%'; progress.classList.add('hidden'); }, 3000);
+    }
+}
+
+window.forceRefreshSymbol = forceRefreshSymbol;

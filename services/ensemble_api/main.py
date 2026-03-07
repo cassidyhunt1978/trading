@@ -215,16 +215,18 @@ def assign_all_strategies(symbol: str):
                 strategies = cur.fetchall()
 
                 for strat in strategies:
-                    # Check if backtest results exist
+                    # Check if backtest results exist (backtests table has total_return_pct, not profit_factor)
                     cur.execute("""
-                        SELECT profit_factor, win_rate, total_trades
+                        SELECT total_return_pct, win_rate, total_trades
                         FROM backtests
                         WHERE strategy_id = %s AND symbol = %s
                         ORDER BY created_at DESC LIMIT 1
                     """, (strat['id'], symbol))
                     bt = cur.fetchone()
 
-                    pf = float(bt['profit_factor']) if bt and bt['profit_factor'] else 1.0
+                    ret_pct = float(bt['total_return_pct']) if bt and bt['total_return_pct'] is not None else 0.0
+                    # Derive proxy profit factor from return: clamp between 0.1 and 3.0
+                    pf = max(0.1, min(3.0, 1.0 + ret_pct / 100.0))
                     wr = float(bt['win_rate']) if bt and bt['win_rate'] else 0.0
                     total = int(bt['total_trades']) if bt and bt['total_trades'] else 0
                     fee = 0.001  # 0.1% default fee drag
@@ -240,8 +242,9 @@ def assign_all_strategies(symbol: str):
                             profit_factor = EXCLUDED.profit_factor,
                             win_rate = EXCLUDED.win_rate,
                             total_trades = EXCLUDED.total_trades,
+                            status = 'active',
                             updated_at = NOW()
-                    """, (symbol, strat['id'], round(trust, 6), pf, wr, total, fee))
+                    """, (symbol, strat['id'], round(trust, 6), round(pf, 6), wr, total, fee))
                     assigned += 1
 
                 # Rank them
