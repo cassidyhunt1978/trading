@@ -1481,13 +1481,13 @@ def get_charts_strategies():
                 strategies = []
                 for row in rows:
                     strategies.append({
-                        "id":               row[0],
-                        "strategy_name":    row[1],
-                        "entry_rules":      row[2],
-                        "exit_rules":       row[3],
-                        "risk_params":      row[4],
-                        "backtest_summary": row[5],
-                        "imported_at":      row[6].isoformat() if row[6] else None,
+                        "id":               row["id"],
+                        "strategy_name":    row["strategy_name"],
+                        "entry_rules":      row["entry_rules"],
+                        "exit_rules":       row["exit_rules"],
+                        "risk_params":      row["risk_params"],
+                        "backtest_summary": row["backtest_summary"],
+                        "imported_at":      row["imported_at"].isoformat() if row["imported_at"] else None,
                     })
                 return {"strategies": strategies, "count": len(strategies)}
     except Exception as e:
