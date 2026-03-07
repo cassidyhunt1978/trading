@@ -566,16 +566,19 @@ def get_stats(mode: str = Query("paper", regex="^(paper|live)$")):
 
 
 @app.post("/run-cycle")
-def run_full_cycle():
-    """Trigger process_all_symbols Celery task immediately (manual override of beat schedule)."""
+def run_full_cycle(symbol: Optional[str] = Query(None)):
+    """Trigger process_all_symbols (or a specific symbol) Celery task immediately."""
     try:
         from celery import Celery
         celery_app = Celery(
             "trading_celery",
             broker=os.environ.get("CELERY_BROKER_URL", "redis://localhost:6379/0"),
         )
-        task = celery_app.send_task("process_all_symbols")
-        return {"status": "triggered", "task_id": task.id}
+        if symbol:
+            task = celery_app.send_task("process_symbol", args=[symbol.upper()])
+        else:
+            task = celery_app.send_task("process_all_symbols")
+        return {"status": "triggered", "task_id": task.id, "symbol": symbol}
     except Exception as e:
         logger.error("run_cycle_error", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))

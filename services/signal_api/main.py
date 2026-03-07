@@ -94,30 +94,33 @@ def get_active_signals(min_quality: int = Query(60, ge=0, le=100)):
 @app.get("/signals/recent", response_model=List[Signal])
 def get_recent_signals(
     strategy_id: Optional[int] = Query(None),
+    symbol: Optional[str] = Query(None),
     hours: int = Query(24, ge=1, le=168),
-    min_quality: int = Query(0, ge=0, le=100)
+    min_quality: int = Query(0, ge=0, le=100),
+    limit: int = Query(50, ge=1, le=500)
 ):
-    """Get recent signals (including expired) for a strategy"""
+    """Get recent signals (including expired), filterable by symbol and/or strategy"""
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
+                conditions = [
+                    "generated_at > NOW() - INTERVAL '%s hours'",
+                    "quality_score >= %s",
+                ]
+                params = [hours, min_quality]
                 if strategy_id:
-                    cur.execute("""
-                        SELECT * FROM signals
-                        WHERE strategy_id = %s
-                        AND generated_at > NOW() - INTERVAL '%s hours'
-                        AND quality_score >= %s
-                        ORDER BY generated_at DESC
-                        LIMIT 50
-                    """, (strategy_id, hours, min_quality))
-                else:
-                    cur.execute("""
-                        SELECT * FROM signals
-                        WHERE generated_at > NOW() - INTERVAL '%s hours'
-                        AND quality_score >= %s
-                        ORDER BY generated_at DESC
-                        LIMIT 50
-                    """, (hours, min_quality))
+                    conditions.append("strategy_id = %s")
+                    params.append(strategy_id)
+                if symbol:
+                    conditions.append("symbol = %s")
+                    params.append(symbol.upper())
+                params.append(limit)
+                where_clause = ' AND '.join(conditions)
+                cur.execute(
+                    f"SELECT * FROM signals WHERE {where_clause}"
+                    f" ORDER BY generated_at DESC LIMIT %s",
+                    params
+                )
                 
                 signals = [dict(row) for row in cur.fetchall()]
         

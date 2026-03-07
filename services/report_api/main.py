@@ -216,6 +216,8 @@ def trust_rankings(
                         FROM symbol_strategies ss
                         LEFT JOIN strategies s ON s.id = ss.strategy_id
                         WHERE ss.symbol = %s
+                          AND ss.total_trades > 0
+                          AND s.name NOT IN ('Test Constraint Fix', 'MOCK Momentum Long')
                         ORDER BY ss.trust_factor DESC NULLS LAST
                         LIMIT %s
                     """, (symbol, limit))
@@ -227,6 +229,8 @@ def trust_rankings(
                                s.description
                         FROM symbol_strategies ss
                         LEFT JOIN strategies s ON s.id = ss.strategy_id
+                        WHERE ss.total_trades > 0
+                          AND s.name NOT IN ('Test Constraint Fix', 'MOCK Momentum Long')
                         ORDER BY ss.trust_factor DESC NULLS LAST
                         LIMIT %s
                     """, (limit,))

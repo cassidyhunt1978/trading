@@ -2,10 +2,116 @@
 {% from 'components/signal_card.html' import signal_card, position_card %}
 
         <div id="tab-portfolio" class="tab-content active p-4">
-            <!-- Main Content Grid -->
-            <div class="max-w-5xl mx-auto">
-                <!-- Enhanced P&L Card -->
-                {% include 'components/pnl_card.html' %}
+            <!-- ── Compact Stats Header ─────────────────────────────────── -->
+            <div class="bg-gray-800 rounded-xl border border-gray-700 p-3 mb-4 shadow">
+                <!-- Row 1: value + controls -->
+                <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
+                    <div class="flex items-center gap-4 flex-wrap">
+                        <div>
+                            <div class="text-xs text-gray-500">Account Value</div>
+                            <div class="text-xl font-bold text-blue-400" id="dash-value">$--</div>
+                        </div>
+                        <div>
+                            <div class="text-xs text-gray-500">Today P&L</div>
+                            <div class="text-lg font-semibold" id="dash-daily">--</div>
+                        </div>
+                        <div>
+                            <div class="text-xs text-gray-500">Win Rate</div>
+                            <div class="text-lg font-semibold" id="dash-winrate">--%</div>
+                        </div>
+                        <div>
+                            <div class="text-xs text-gray-500">Open Positions</div>
+                            <div class="text-lg font-semibold text-purple-400" id="dash-open">0</div>
+                        </div>
+                        <div>
+                            <div class="text-xs text-gray-500">Active Signals</div>
+                            <div class="text-lg font-semibold text-green-400" id="dash-signals">--</div>
+                        </div>
+                        <div>
+                            <div class="text-xs text-gray-500">Last Signal</div>
+                            <div class="text-sm font-semibold" id="dash-last-signal">--</div>
+                        </div>
+                    </div>
+                    <div class="flex gap-2 items-center flex-wrap">
+                        <button onclick="switchPnlMode('paper')" id="pnl-mode-paper"
+                                class="px-3 py-1 rounded text-xs font-semibold bg-blue-600 text-white">📄 Paper</button>
+                        <button onclick="switchPnlMode('live')" id="pnl-mode-live"
+                                class="px-3 py-1 rounded text-xs font-semibold bg-gray-700 text-gray-300 hover:bg-gray-600">🔴 Live</button>
+                    </div>
+                </div>
+                <!-- Row 2: mini equity curve -->
+                <div class="flex items-center gap-2">
+                    <div class="relative flex-1" style="height:48px; min-width:0">
+                        <canvas id="mini-equity-canvas"></canvas>
+                        <div id="mini-equity-empty" class="absolute inset-0 flex items-center justify-center text-xs text-gray-600" style="display:none!important">No P&L data yet</div>
+                    </div>
+                    <div class="flex gap-1 shrink-0">
+                        <button onclick="loadMiniEquity(7)"  data-days="7"  class="mini-eq-btn px-2 py-0.5 rounded bg-gray-700 hover:bg-gray-600 text-xs">7d</button>
+                        <button onclick="loadMiniEquity(30)" data-days="30" class="mini-eq-btn px-2 py-0.5 rounded bg-blue-600 text-xs">30d</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ── Symbol Cards Grid ───────────────────────────────────── -->
+            <div class="flex flex-wrap items-center gap-3 mb-3">
+                <h2 class="text-lg font-bold flex-1">📊 Symbols</h2>
+                <label class="flex items-center gap-1.5 text-sm text-gray-400 cursor-pointer select-none">
+                    <input type="checkbox" id="hide-zeros-toggle" checked onchange="renderSymbolCardsFromCache()"
+                           class="w-4 h-4 accent-blue-500">
+                    Hide no-data
+                </label>
+                <button onclick="refreshDashboard()"
+                        class="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-xs">↻ Refresh</button>
+                <button onclick="runFullCycle(this)"
+                        class="px-4 py-1.5 bg-purple-700 hover:bg-purple-600 rounded-lg text-sm font-semibold whitespace-nowrap">
+                    ⚡ Run Full Cycle
+                </button>
+            </div>
+            <div id="symbols-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                <div class="symbol-card p-8 text-center text-gray-500">
+                    <div class="text-3xl mb-2">⏳</div>
+                    <div>Loading symbols…</div>
+                </div>
+            </div>
+
+            <!-- Hidden containers still needed by pnl_card.js internals -->
+            <div id="paper-positions-container" style="display: none;"></div>
+            <!-- IDs still expected by pnl_card.js for mode-switching -->
+            <div style="display:none">
+                <span id="pnl-portfolio-value"></span>
+                <span id="pnl-total-capital"></span>
+                <span id="pnl-available-capital"></span>
+                <span id="pnl-available-pct"></span>
+                <span id="pnl-open-positions"></span>
+                <span id="pnl-deployed-capital"></span>
+                <span id="pnl-unrealized"></span>
+                <span id="pnl-unrealized-pct"></span>
+                <span id="pnl-daily"></span>
+                <span id="pnl-daily-pct"></span>
+                <span id="pnl-total"></span>
+                <span id="pnl-total-pct"></span>
+                <span id="pnl-win-rate"></span>
+                <span id="pnl-win-ratio"></span>
+                <span id="pnl-avg-trade"></span>
+                <span id="pnl-trades-today"></span>
+                <span id="pnl-starting-capital"></span>
+                <span id="pnl-capital-source"></span>
+                <span id="pnl-portfolio-change"></span>
+                <span id="pnl-mode-label"></span>
+                <span id="pnl-timezone-info"></span>
+                <span id="activity-last-candles"></span>
+                <span id="activity-last-signal"></span>
+                <span id="activity-active-signals"></span>
+                <span id="activity-ensemble-trades"></span>
+                <span id="activity-strategy-trades"></span>
+                <span id="activity-last-trade"></span>
+                <span id="activity-workers"></span>
+                <span id="system-activity-status"></span>
+                <span id="top-symbols-list"></span>
+                <span id="top-strategies-list"></span>
+                <span id="pnl-open-positions-section"></span>
+            </div>
+        </div>
 
                 <!-- Ensemble Signals (Hidden - moved to Details modal) -->
                 <div class="bg-gray-800 rounded-lg p-6" style="display: none;">

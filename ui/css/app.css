@@ -244,7 +244,7 @@ body { overscroll-behavior: none; }
     opacity: 0;
 }
 
-/* Compact Collapsible Position Details */
+/* ─── Position details compact ───────────────────────────────────────── */
 .position-details-compact {
     max-height: 5000px;
     overflow: hidden;
@@ -254,4 +254,27 @@ body { overscroll-behavior: none; }
 .position-details-compact.collapsed {
     max-height: 0;
     transition: max-height 0.3s ease-in-out;
+}
+
+/* ─── Dashboard compact header ────────────────────────────────────────── */
+#tab-portfolio .compact-header-strip {
+    background: linear-gradient(135deg, #1e3a5f 0%, #1f2937 100%);
+}
+/* Equity curve in header: shorter on mobile */
+@media (max-width: 640px) {
+    #mini-equity-canvas { height: 36px !important; }
+    .dash-stat-label { font-size: 0.6rem; }
+    #tab-portfolio #symbols-grid { gap: 12px; }
+    /* Stack symbol card action buttons 2×2 on small screens */
+    .action-btn { padding: 7px 4px; font-size: 11px; }
+    /* Signal modal: full height */
+    #signals-content { max-height: 55vh !important; }
+    /* Module grid on cards */
+    .symbol-card { padding: 12px; }
+    .symbol-card .text-3xl { font-size: 1.4rem; }
+    .symbol-card .text-2xl { font-size: 1.15rem; }
+}
+@media (max-width: 400px) {
+    .symbol-card .grid-cols-4 { grid-template-columns: repeat(2, 1fr) !important; }
+    .symbol-card .action-btn { font-size: 10px; padding: 6px 2px; }
 }

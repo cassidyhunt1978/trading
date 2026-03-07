@@ -1685,3 +1685,65 @@ async function loadTopDashboard() {
 }
 window.loadTopDashboard = loadTopDashboard;
 window.loadMiniEquity   = loadMiniEquity;
+
+// ─── Dashboard compact header refresh ────────────────────────────────────
+async function refreshDashboardHeader() {
+    try {
+        const [portRes, sigRes] = await Promise.allSettled([
+            fetch(`http://${window.API_HOST}:8016/portfolio?mode=paper`),
+            fetch(`http://${window.API_HOST}:8015/signals/stats`),
+        ]);
+        if (portRes.status === 'fulfilled' && portRes.value.ok) {
+            const p = await portRes.value.json();
+            const portfolio = p.portfolio || p;
+            const val = portfolio.total_portfolio_value ?? portfolio.total_capital ?? 0;
+            const daily = portfolio.todays_pnl ?? portfolio.daily_pnl ?? 0;
+            const winRate = portfolio.win_rate_today ?? 0;
+            const openPos = portfolio.open_positions ?? portfolio.open_position_count ?? 0;
+            const el = id => document.getElementById(id);
+            if (el('dash-value'))   el('dash-value').textContent = '$' + parseFloat(val).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+            if (el('dash-daily')) {
+                el('dash-daily').textContent = (daily >= 0 ? '+$' : '-$') + Math.abs(daily).toFixed(2);
+                el('dash-daily').className  = 'text-lg font-semibold ' + (daily >= 0 ? 'text-green-400' : 'text-red-400');
+            }
+            if (el('dash-winrate')) el('dash-winrate').textContent = parseFloat(winRate).toFixed(0) + '%';
+            if (el('dash-open'))    el('dash-open').textContent = openPos;
+        }
+        if (sigRes.status === 'fulfilled' && sigRes.value.ok) {
+            const s = await sigRes.value.json();
+            const active = s.active_signals ?? 0;
+            const el = document.getElementById('dash-signals');
+            if (el) el.textContent = active;
+        }
+        // Last signal time from activity tracker
+        const lastSig = document.getElementById('activity-last-signal')?.textContent;
+        const dashLast = document.getElementById('dash-last-signal');
+        if (dashLast && lastSig && lastSig !== '-') dashLast.textContent = lastSig;
+    } catch(e) { console.warn('[Dashboard] refreshDashboardHeader failed', e); }
+}
+window.refreshDashboardHeader = refreshDashboardHeader;
+
+// ─── Load symbol cards into #symbols-grid (Dashboard tab) ─────────────────
+async function loadDashboardSymbols() {
+    const grid = document.getElementById('symbols-grid');
+    if (!grid) return;
+    // If symbols are already cached (loaded via loadSymbols), just render
+    if (window._symbolsCache && window._symbolsCache.length > 0) {
+        window.renderSymbolCardsFromCache && window.renderSymbolCardsFromCache();
+        // Refresh live data
+        (window._symbolsCache || []).forEach(s => window.loadSymbolData && window.loadSymbolData(s.symbol));
+        window.loadSymbolStats && window.loadSymbolStats();
+        return;
+    }
+    // Otherwise trigger a full load (same as Symbols tab)
+    window.loadSymbolsFull && window.loadSymbolsFull();
+}
+window.loadDashboardSymbols = loadDashboardSymbols;
+
+// ─── refreshDashboard: manual refresh button ─────────────────────────────
+async function refreshDashboard() {
+    await refreshDashboardHeader();
+    await loadMiniEquity(30);
+    window.loadSymbolsFull && window.loadSymbolsFull();
+}
+window.refreshDashboard = refreshDashboard;
