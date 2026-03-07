@@ -4583,67 +4583,64 @@ def monitor_profitability():
 @celery_app.task(name='generate_daily_report')
 def generate_daily_report():
     """
-    Nightly accountability snapshot: aggregates daily P&L, signal quality,
-    and mode-streak data and writes a summary row to daily_profitability_log
-    for any symbols that were active but have no entry yet for yesterday.
-    Runs at 3:00 AM UTC (after midnight stats reset at 7 AM UTC = midnight MST).
+    Nightly accountability snapshot: aggregates daily P&L into daily_profitability_log
+    for each mode (paper/live) if no row already exists for yesterday.
+    Runs at 3:00 AM UTC.
     """
     from datetime import date, timedelta
-    import httpx
 
     yesterday = date.today() - timedelta(days=1)
     logger.info("task_started", task="generate_daily_report", date=str(yesterday))
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
-                # Find symbols with mode config but no profitability log entry for yesterday
-                cur.execute("""
-                    SELECT tmc.symbol
-                    FROM trading_mode_config tmc
-                    WHERE tmc.trading_mode IN ('paper', 'live')
-                      AND NOT EXISTS (
-                          SELECT 1 FROM daily_profitability_log dpl
-                          WHERE dpl.symbol = tmc.symbol
-                            AND dpl.log_date = %s
-                      )
-                """, (yesterday,))
-                missing_symbols = [r[0] for r in cur.fetchall()]
+                # Get current modes from trading_mode_config
+                cur.execute("SELECT DISTINCT mode FROM trading_mode_config")
+                active_modes = [r["mode"] for r in cur.fetchall() if r["mode"] in ("paper", "live")]
 
                 inserted = 0
-                for symbol in missing_symbols:
-                    # Compute from positions closed that day
+                for mode in active_modes:
+                    # Skip if row already exists
+                    cur.execute("""
+                        SELECT 1 FROM daily_profitability_log
+                        WHERE date = %s AND mode = %s
+                    """, (yesterday, mode))
+                    if cur.fetchone():
+                        continue
+
+                    # Compute from positions closed that day for this mode
                     cur.execute("""
                         SELECT
                             COUNT(*) AS trades,
                             SUM(CASE WHEN realized_pnl > 0 THEN 1 ELSE 0 END) AS wins,
                             COALESCE(SUM(realized_pnl), 0) AS pnl
                         FROM positions
-                        WHERE symbol = %s
+                        WHERE mode = %s
                           AND status = 'closed'
-                          AND DATE(closed_at) = %s
-                    """, (symbol, yesterday))
+                          AND DATE(exit_time) = %s
+                    """, (mode, yesterday))
                     row = cur.fetchone()
-                    trades = row[0] or 0
-                    wins = row[1] or 0
-                    pnl = float(row[2]) if row[2] else 0.0
+                    trades = row["trades"] or 0
+                    wins = row["wins"] or 0
+                    pnl = float(row["pnl"]) if row["pnl"] else 0.0
 
                     cur.execute("""
                         INSERT INTO daily_profitability_log
-                            (symbol, log_date, total_pnl, is_profitable, trades_count, winning_trades)
+                            (date, mode, total_pnl, is_profitable, trades_count, winning_trades)
                         VALUES (%s, %s, %s, %s, %s, %s)
-                        ON CONFLICT (symbol, log_date) DO NOTHING
-                    """, (symbol, yesterday, pnl, pnl > 0, trades, wins))
+                        ON CONFLICT (date, mode) DO NOTHING
+                    """, (yesterday, mode, pnl, pnl > 0, trades, wins))
                     inserted += 1
 
                 conn.commit()
 
         logger.info("generate_daily_report_complete",
                     date=str(yesterday),
-                    symbols_backfilled=inserted)
+                    modes_backfilled=inserted)
         return {
             "status": "ok",
             "date": str(yesterday),
-            "symbols_backfilled": inserted,
+            "modes_backfilled": inserted,
         }
     except Exception as e:
         logger.error("task_error", task="generate_daily_report", error=str(e))

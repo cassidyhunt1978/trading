@@ -51,20 +51,20 @@ def equity_curve(days: int = Query(30, ge=1, le=365)):
         with get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
-                    SELECT snapshot_time, total_capital, realized_pnl, open_pnl
+                    SELECT timestamp, total_capital, total_pnl, daily_pnl
                     FROM portfolio_snapshots
-                    WHERE snapshot_time >= %s
-                    ORDER BY snapshot_time ASC
+                    WHERE timestamp >= %s
+                    ORDER BY timestamp ASC
                 """, (since,))
                 rows = cur.fetchall()
         return {
             "days": days,
             "points": [
                 {
-                    "time": r[0].isoformat() if r[0] else None,
-                    "total_capital": float(r[1]) if r[1] is not None else None,
-                    "realized_pnl": float(r[2]) if r[2] is not None else None,
-                    "open_pnl": float(r[3]) if r[3] is not None else None,
+                    "time": r["timestamp"].isoformat() if r["timestamp"] else None,
+                    "total_capital": float(r["total_capital"]) if r["total_capital"] is not None else None,
+                    "realized_pnl": float(r["total_pnl"]) if r["total_pnl"] is not None else None,
+                    "open_pnl": float(r["daily_pnl"]) if r["daily_pnl"] is not None else None,
                 }
                 for r in rows
             ],
@@ -77,27 +77,28 @@ def equity_curve(days: int = Query(30, ge=1, le=365)):
 
 @app.get("/daily_log")
 def daily_log(days: int = Query(30, ge=1, le=180)):
-    """Daily P&L log with win/loss streaks from daily_profitability_log."""
+    """Daily P&L log from daily_profitability_log."""
     since = date.today() - timedelta(days=days)
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
-                    SELECT log_date, total_pnl, is_profitable,
-                           trades_count, winning_trades, created_at
+                    SELECT date, mode, total_pnl, is_profitable,
+                           trades_count, winning_trades
                     FROM daily_profitability_log
-                    WHERE log_date >= %s
-                    ORDER BY log_date DESC
+                    WHERE date >= %s
+                    ORDER BY date DESC, mode
                 """, (since,))
                 rows = cur.fetchall()
         entries = []
         for r in rows:
-            trades = r[3] or 0
-            wins = r[4] or 0
+            trades = r["trades_count"] or 0
+            wins = r["winning_trades"] or 0
             entries.append({
-                "date": str(r[0]),
-                "total_pnl": float(r[1]) if r[1] is not None else 0.0,
-                "is_profitable": bool(r[2]),
+                "date": str(r["date"]),
+                "mode": r["mode"],
+                "total_pnl": float(r["total_pnl"]) if r["total_pnl"] is not None else 0.0,
+                "is_profitable": bool(r["is_profitable"]),
                 "trades_count": trades,
                 "winning_trades": wins,
                 "win_rate": round(wins / trades * 100, 1) if trades > 0 else None,
@@ -115,37 +116,36 @@ def streak():
         with get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
-                    SELECT symbol, trading_mode,
-                           profitable_days_streak, unprofitable_days_streak,
-                           days_to_promote, days_to_demote,
-                           updated_at
+                    SELECT mode, profitable_days_streak, unprofitable_days_streak,
+                           days_to_promote, days_to_demote, updated_at
                     FROM trading_mode_config
-                    ORDER BY updated_at DESC
-                    LIMIT 50
+                    ORDER BY id
                 """)
                 rows = cur.fetchall()
         results = []
         for r in rows:
+            profit_streak = r["profitable_days_streak"] or 0
+            unprofit_streak = r["unprofitable_days_streak"] or 0
+            days_promote = r["days_to_promote"] or 7
+            days_demote = r["days_to_demote"] or 5
             results.append({
-                "symbol": r[0],
-                "trading_mode": r[1],
-                "profitable_days_streak": r[2] or 0,
-                "unprofitable_days_streak": r[3] or 0,
-                "days_to_promote": r[4] or 7,
-                "days_to_demote": r[5] or 5,
-                "updated_at": r[6].isoformat() if r[6] else None,
-                "promote_progress_pct": round((r[2] or 0) / max(r[4] or 7, 1) * 100),
-                "demote_risk_pct": round((r[3] or 0) / max(r[5] or 5, 1) * 100),
+                "mode": r["mode"],
+                "profitable_days_streak": profit_streak,
+                "unprofitable_days_streak": unprofit_streak,
+                "days_to_promote": days_promote,
+                "days_to_demote": days_demote,
+                "updated_at": r["updated_at"].isoformat() if r["updated_at"] else None,
+                "promote_progress_pct": round(profit_streak / max(days_promote, 1) * 100),
+                "demote_risk_pct": round(unprofit_streak / max(days_demote, 1) * 100),
             })
-        # Aggregate summary
-        modes = [r["trading_mode"] for r in results]
+        modes = [r["mode"] for r in results]
         summary = {
             "live_count": modes.count("live"),
             "paper_count": modes.count("paper"),
             "stopped_count": modes.count("stopped"),
             "total_symbols": len(results),
         }
-        return {"summary": summary, "symbols": results}
+        return {"summary": summary, "modes": results}
     except Exception as e:
         logger.error(f"streak error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -162,24 +162,24 @@ def trust_rankings(
             with conn.cursor() as cur:
                 if symbol:
                     cur.execute("""
-                        SELECT ss.symbol, ss.strategy_name, ss.trust_factor,
+                        SELECT ss.symbol, s.name AS strategy_name, ss.trust_factor,
                                ss.profit_factor, ss.win_rate, ss.total_trades,
                                ss.status, ss.updated_at,
                                s.description
                         FROM symbol_strategies ss
-                        LEFT JOIN strategies s ON s.name = ss.strategy_name
+                        LEFT JOIN strategies s ON s.id = ss.strategy_id
                         WHERE ss.symbol = %s
                         ORDER BY ss.trust_factor DESC NULLS LAST
                         LIMIT %s
                     """, (symbol, limit))
                 else:
                     cur.execute("""
-                        SELECT ss.symbol, ss.strategy_name, ss.trust_factor,
+                        SELECT ss.symbol, s.name AS strategy_name, ss.trust_factor,
                                ss.profit_factor, ss.win_rate, ss.total_trades,
                                ss.status, ss.updated_at,
                                s.description
                         FROM symbol_strategies ss
-                        LEFT JOIN strategies s ON s.name = ss.strategy_name
+                        LEFT JOIN strategies s ON s.id = ss.strategy_id
                         ORDER BY ss.trust_factor DESC NULLS LAST
                         LIMIT %s
                     """, (limit,))
@@ -188,15 +188,15 @@ def trust_rankings(
             "symbol_filter": symbol,
             "rankings": [
                 {
-                    "symbol": r[0],
-                    "strategy_name": r[1],
-                    "trust_factor": float(r[2]) if r[2] is not None else 0.0,
-                    "profit_factor": float(r[3]) if r[3] is not None else 0.0,
-                    "win_rate": float(r[4]) if r[4] is not None else 0.0,
-                    "total_trades": r[5] or 0,
-                    "status": r[6],
-                    "updated_at": r[7].isoformat() if r[7] else None,
-                    "description": r[8],
+                    "symbol": r["symbol"],
+                    "strategy_name": r["strategy_name"] or "(unnamed)",
+                    "trust_factor": float(r["trust_factor"]) if r["trust_factor"] is not None else 0.0,
+                    "profit_factor": float(r["profit_factor"]) if r["profit_factor"] is not None else 0.0,
+                    "win_rate": float(r["win_rate"]) if r["win_rate"] is not None else 0.0,
+                    "total_trades": r["total_trades"] or 0,
+                    "status": r["status"],
+                    "updated_at": r["updated_at"].isoformat() if r["updated_at"] else None,
+                    "description": r["description"],
                 }
                 for r in rows
             ],
@@ -220,8 +220,8 @@ def accountability():
                         SUM(CASE WHEN realized_pnl > 0 THEN 1 ELSE 0 END) AS winning_trades,
                         SUM(realized_pnl) AS total_pnl,
                         AVG(realized_pnl) AS avg_pnl,
-                        SUM(fees) AS total_fees,
-                        AVG(fees) AS avg_fee
+                        SUM(COALESCE(entry_fee,0) + COALESCE(exit_fee,0)) AS total_fees,
+                        AVG(COALESCE(entry_fee,0) + COALESCE(exit_fee,0)) AS avg_fee
                     FROM positions
                     WHERE status = 'closed'
                 """)
@@ -248,29 +248,27 @@ def accountability():
                 """)
                 days_row = cur.fetchone()
 
-                # Live vs paper breakdown
+                # Current mode from trading_mode_config
                 cur.execute("""
-                    SELECT trading_mode, COUNT(*) as cnt
+                    SELECT mode, profitable_days_streak, unprofitable_days_streak
                     FROM trading_mode_config
-                    GROUP BY trading_mode
+                    ORDER BY id LIMIT 1
                 """)
-                mode_rows = cur.fetchall()
+                mode_row = cur.fetchone()
 
-        total_trades = trade_row[0] or 0
-        winning_trades = trade_row[1] or 0
-        total_pnl = float(trade_row[2]) if trade_row[2] else 0.0
-        avg_pnl = float(trade_row[3]) if trade_row[3] else 0.0
-        total_fees = float(trade_row[4]) if trade_row[4] else 0.0
-        avg_fee = float(trade_row[5]) if trade_row[5] else 0.0
+        total_trades = trade_row["total_trades"] or 0
+        winning_trades = trade_row["winning_trades"] or 0
+        total_pnl = float(trade_row["total_pnl"]) if trade_row["total_pnl"] else 0.0
+        avg_pnl = float(trade_row["avg_pnl"]) if trade_row["avg_pnl"] else 0.0
+        total_fees = float(trade_row["total_fees"]) if trade_row["total_fees"] else 0.0
+        avg_fee = float(trade_row["avg_fee"]) if trade_row["avg_fee"] else 0.0
 
-        total_signals = sig_row[0] or 0
-        avg_quality = float(sig_row[1]) if sig_row[1] else 0.0
+        total_signals = sig_row["total_signals"] or 0
+        avg_quality = float(sig_row["avg_quality"]) if sig_row["avg_quality"] else 0.0
 
-        total_days = days_row[0] or 0
-        profitable_days = days_row[1] or 0
+        total_days = days_row["total_days"] or 0
+        profitable_days = days_row["profitable_days"] or 0
         profitable_days_pct = round(profitable_days / total_days * 100, 1) if total_days > 0 else 0.0
-
-        mode_map = {r[0]: r[1] for r in mode_rows}
 
         win_rate = round(winning_trades / total_trades * 100, 1) if total_trades > 0 else 0.0
         fee_drag_pct = round(total_fees / max(abs(total_pnl), 0.01) * 100, 1) if total_pnl != 0 else 0.0
@@ -289,18 +287,18 @@ def accountability():
             "signals": {
                 "total_last_30d": total_signals,
                 "avg_quality_score": round(avg_quality, 1),
-                "buy_count": sig_row[2] or 0,
-                "sell_count": sig_row[3] or 0,
+                "buy_count": sig_row["buy_signals"] or 0,
+                "sell_count": sig_row["sell_signals"] or 0,
             },
             "daily": {
                 "total_days_logged": total_days,
                 "profitable_days": profitable_days,
                 "profitable_days_pct": profitable_days_pct,
             },
-            "modes": {
-                "live": mode_map.get("live", 0),
-                "paper": mode_map.get("paper", 0),
-                "stopped": mode_map.get("stopped", 0),
+            "mode": {
+                "current": mode_row["mode"] if mode_row else "unknown",
+                "profitable_streak": mode_row["profitable_days_streak"] if mode_row else 0,
+                "unprofitable_streak": mode_row["unprofitable_days_streak"] if mode_row else 0,
             },
         }
     except Exception as e:
@@ -323,26 +321,31 @@ def daily_report(report_date: Optional[str] = Query(None)):
                 cur.execute("""
                     SELECT total_pnl, is_profitable, trades_count, winning_trades
                     FROM daily_profitability_log
-                    WHERE log_date = %s
+                    WHERE date = %s
+                    ORDER BY mode LIMIT 1
                 """, (target_date,))
                 day_row = cur.fetchone()
 
                 # Top 5 performing closed positions that day
                 cur.execute("""
-                    SELECT symbol, strategy_name, realized_pnl, entry_price, exit_price
-                    FROM positions
-                    WHERE DATE(closed_at) = %s AND status = 'closed'
-                    ORDER BY realized_pnl DESC
+                    SELECT p.symbol, s.name AS strategy_name,
+                           p.realized_pnl, p.entry_price, p.exit_price
+                    FROM positions p
+                    LEFT JOIN strategies s ON s.id = p.strategy_id
+                    WHERE DATE(p.exit_time) = %s AND p.status = 'closed'
+                    ORDER BY p.realized_pnl DESC
                     LIMIT 5
                 """, (target_date,))
                 top_pos = cur.fetchall()
 
                 # Bottom 5
                 cur.execute("""
-                    SELECT symbol, strategy_name, realized_pnl, entry_price, exit_price
-                    FROM positions
-                    WHERE DATE(closed_at) = %s AND status = 'closed'
-                    ORDER BY realized_pnl ASC
+                    SELECT p.symbol, s.name AS strategy_name,
+                           p.realized_pnl, p.entry_price, p.exit_price
+                    FROM positions p
+                    LEFT JOIN strategies s ON s.id = p.strategy_id
+                    WHERE DATE(p.exit_time) = %s AND p.status = 'closed'
+                    ORDER BY p.realized_pnl ASC
                     LIMIT 5
                 """, (target_date,))
                 bot_pos = cur.fetchall()
@@ -357,10 +360,10 @@ def daily_report(report_date: Optional[str] = Query(None)):
 
                 # Portfolio snapshot nearest to end of that day
                 cur.execute("""
-                    SELECT total_capital, snapshot_time
+                    SELECT total_capital, timestamp
                     FROM portfolio_snapshots
-                    WHERE DATE(snapshot_time) = %s
-                    ORDER BY snapshot_time DESC
+                    WHERE DATE(timestamp) = %s
+                    ORDER BY timestamp DESC
                     LIMIT 1
                 """, (target_date,))
                 snap = cur.fetchone()
@@ -368,11 +371,11 @@ def daily_report(report_date: Optional[str] = Query(None)):
         def pos_fmt(rows):
             return [
                 {
-                    "symbol": r[0],
-                    "strategy": r[1],
-                    "pnl": float(r[2]) if r[2] else 0.0,
-                    "entry": float(r[3]) if r[3] else None,
-                    "exit": float(r[4]) if r[4] else None,
+                    "symbol": r["symbol"],
+                    "strategy": r["strategy_name"],
+                    "pnl": float(r["realized_pnl"]) if r["realized_pnl"] else 0.0,
+                    "entry": float(r["entry_price"]) if r["entry_price"] else None,
+                    "exit": float(r["exit_price"]) if r["exit_price"] else None,
                 }
                 for r in rows
             ]
@@ -380,18 +383,18 @@ def daily_report(report_date: Optional[str] = Query(None)):
         return {
             "date": str(target_date),
             "summary": {
-                "total_pnl": float(day_row[0]) if day_row and day_row[0] else 0.0,
-                "is_profitable": bool(day_row[1]) if day_row else None,
-                "trades_count": day_row[2] if day_row else 0,
-                "winning_trades": day_row[3] if day_row else 0,
+                "total_pnl": float(day_row["total_pnl"]) if day_row and day_row["total_pnl"] else 0.0,
+                "is_profitable": bool(day_row["is_profitable"]) if day_row else None,
+                "trades_count": day_row["trades_count"] if day_row else 0,
+                "winning_trades": day_row["winning_trades"] if day_row else 0,
             },
             "signals": {
-                "count": sig_row[0] if sig_row else 0,
-                "avg_quality": round(float(sig_row[1]), 1) if sig_row and sig_row[1] else 0.0,
+                "count": sig_row["count"] if sig_row else 0,
+                "avg_quality": round(float(sig_row["avg"]), 1) if sig_row and sig_row["avg"] else 0.0,
             },
             "portfolio_eod": {
-                "total_capital": float(snap[0]) if snap and snap[0] else None,
-                "snapshot_time": snap[1].isoformat() if snap and snap[1] else None,
+                "total_capital": float(snap["total_capital"]) if snap and snap["total_capital"] else None,
+                "snapshot_time": snap["timestamp"].isoformat() if snap and snap["timestamp"] else None,
             },
             "top_performers": pos_fmt(top_pos),
             "bottom_performers": pos_fmt(bot_pos),
