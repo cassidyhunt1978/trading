@@ -1,0 +1,12 @@
+{#
+  realtime_bar.html — The real-time polling status bar shown at the top of the portfolio page.
+  Shows last candle time and cycle count from the realtime.js polling loop.
+#}
+<div id="realtime-bar" class="flex items-center gap-3 mb-3 text-xs text-gray-500">
+    <span class="flex items-center gap-1">
+        <span id="rt-dot" class="inline-block w-2 h-2 rounded-full bg-gray-600"></span>
+        <span id="rt-status">Connecting...</span>
+    </span>
+    <span id="rt-last-candle" class="hidden">Last candle: <span id="rt-candle-time">--</span></span>
+    <span id="rt-cycle-count" class="hidden ml-auto">Cycles: <span id="rt-cycles">0</span></span>
+</div>

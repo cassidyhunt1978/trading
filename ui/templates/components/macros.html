@@ -1,12 +1,149 @@
-{# Reusable Component Macros #}
+{# ════════════════════════════════════════════════════════════════════════════
+   Reusable Jinja2 macros — import these at the top of any page template:
+   {% from 'components/macros.html' import stat_card, page_header, action_btn, filter_btn, kpi_box, badge %}
+   ════════════════════════════════════════════════════════════════════════════ #}
 
-{# Stat Card Component #}
+{# ── Stat card: labelled value box ── #}
 {% macro stat_card(label, value_id, value='-', color='') %}
 <div class="bg-gray-800 p-4 rounded-lg">
     <div class="text-gray-400 text-sm mb-1">{{ label }}</div>
     <div class="text-2xl font-bold {{ color }}" id="{{ value_id }}">{{ value }}</div>
 </div>
 {% endmacro %}
+
+{# ── Compact inline stat (for header rows) ── #}
+{% macro stat_inline(label, value_id, value='--', color='text-white') %}
+<div>
+    <div class="text-xs text-gray-500">{{ label }}</div>
+    <div class="text-lg font-semibold {{ color }}" id="{{ value_id }}">{{ value }}</div>
+</div>
+{% endmacro %}
+
+{# ── KPI box (reports / policies style) ── #}
+{% macro kpi_box(label, value_id, color='text-white', sub='', sub_id='') %}
+<div class="bg-gray-800 rounded-lg p-4 text-center">
+    <div class="text-xs text-gray-400 mb-1 uppercase tracking-wide">{{ label }}</div>
+    <div id="{{ value_id }}" class="text-2xl font-bold {{ color }}">—</div>
+    {% if sub or sub_id %}<div class="text-xs text-gray-500 mt-1"{% if sub_id %} id="{{ sub_id }}"{% endif %}>{{ sub }}</div>{% endif %}
+</div>
+{% endmacro %}
+
+{# ── Page header with optional action buttons ── #}
+{% macro page_header(title, subtitle='') %}
+<div class="flex justify-between items-center mb-4 flex-wrap gap-3">
+    <div>
+        <h2 class="text-2xl font-bold">{{ title }}</h2>
+        {% if subtitle %}<p class="text-sm text-gray-400 mt-1">{{ subtitle }}</p>{% endif %}
+    </div>
+    <div class="flex gap-2 flex-wrap">
+        {{ caller() if caller is defined else '' }}
+    </div>
+</div>
+{% endmacro %}
+
+{# ── Action button ── #}
+{% macro action_btn(text, onclick, style='primary') %}
+{% set cls = {
+    'primary':  'bg-blue-600   hover:bg-blue-700   px-4 py-2 rounded-lg font-semibold text-sm',
+    'success':  'bg-green-600  hover:bg-green-700  px-4 py-2 rounded-lg font-semibold text-sm',
+    'danger':   'bg-red-600    hover:bg-red-700    px-4 py-2 rounded-lg font-semibold text-sm',
+    'purple':   'bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded-lg font-semibold text-sm',
+    'secondary':'bg-gray-700   hover:bg-gray-600   px-4 py-2 rounded-lg font-semibold text-sm',
+} %}
+<button onclick="{{ onclick }}" class="{{ cls[style] | default(cls['primary']) }}">{{ text }}</button>
+{% endmacro %}
+
+{# Backwards-compat aliases #}
+{% macro action_button(text, onclick, classes='bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg font-semibold') %}
+<button onclick="{{ onclick }}" class="{{ classes }}">{{ text }}</button>
+{% endmacro %}
+
+{# ── Filter button ── #}
+{% macro filter_btn(id, label, onclick, active=false) %}
+<button onclick="{{ onclick }}" id="{{ id }}"
+        class="px-4 py-2 rounded {% if active %}bg-blue-600 text-white font-semibold{% else %}bg-gray-700 hover:bg-gray-600{% endif %}">
+    {{ label }}
+</button>
+{% endmacro %}
+
+{# Backwards-compat alias #}
+{% macro filter_button(id, label, onclick, active=false) %}
+{{ filter_btn(id, label, onclick, active) }}
+{% endmacro %}
+
+{# ── Status badge ── #}
+{% macro badge(text, style='gray') %}
+{% set cls = {
+    'green':  'bg-green-900 text-green-300',
+    'red':    'bg-red-900   text-red-300',
+    'yellow': 'bg-yellow-900 text-yellow-300',
+    'blue':   'bg-blue-900  text-blue-300',
+    'purple': 'bg-purple-900 text-purple-300',
+    'gray':   'bg-gray-700  text-gray-400',
+} %}
+<span class="px-2 py-0.5 rounded text-xs {{ cls[style] | default(cls['gray']) }}">{{ text }}</span>
+{% endmacro %}
+
+{# ── Empty state block ── #}
+{% macro empty_state(message='No data yet', icon='📭', sub='') %}
+<div class="text-center py-10 text-gray-500">
+    <div class="text-4xl mb-2">{{ icon }}</div>
+    <div>{{ message }}</div>
+    {% if sub %}<div class="text-xs text-gray-600 mt-1">{{ sub }}</div>{% endif %}
+</div>
+{% endmacro %}
+
+{# ── Loading state (table row version) ── #}
+{% macro loading_row(colspan=6, message='Loading...') %}
+<tr><td colspan="{{ colspan }}" class="text-center py-8 text-gray-500">{{ message }}</td></tr>
+{% endmacro %}
+
+{# ── Generic card wrapper ── #}
+{% macro card(classes='bg-gray-800 p-6 rounded-lg') %}
+<div class="{{ classes }}">{{ caller() }}</div>
+{% endmacro %}
+
+{# ── Gradient card ── #}
+{% macro gradient_card(from_color='purple-900', to_color='purple-800', border_color='purple-500') %}
+<div class="bg-gradient-to-br from-{{ from_color }} to-{{ to_color }} rounded-lg p-6 mb-6 border-2 border-{{ border_color }}">
+    {{ caller() }}
+</div>
+{% endmacro %}
+
+{# ── Tab header (legacy compat) ── #}
+{% macro tab_header(title) %}
+<div class="flex justify-between items-center mb-4">
+    <h2 class="text-2xl font-bold">{{ title }}</h2>
+    <div class="flex gap-2">{{ caller() }}</div>
+</div>
+{% endmacro %}
+
+{# ── Section card (titled panel) ── #}
+{% macro section_card(title, icon='', id='', extra_classes='') %}
+<div class="bg-gray-800 rounded-lg p-4 {{ extra_classes }}" {% if id %}id="{{ id }}"{% endif %}>
+    {% if title %}
+    <div class="flex items-center gap-2 mb-3">
+        {% if icon %}<span>{{ icon }}</span>{% endif %}
+        <h3 class="text-lg font-bold">{{ title }}</h3>
+    </div>
+    {% endif %}
+    {{ caller() }}
+</div>
+{% endmacro %}
+
+{# ── Progress bar ── #}
+{% macro progress_bar(bar_id, text_id, color_class='from-green-500 to-green-400') %}
+<div class="mb-2">
+    <div class="flex justify-between items-center mb-1">
+        <span class="text-sm text-gray-400"></span>
+        <span id="{{ text_id }}" class="text-sm font-semibold">0%</span>
+    </div>
+    <div class="w-full bg-gray-700 rounded-full h-2.5">
+        <div id="{{ bar_id }}" class="bg-gradient-to-r {{ color_class }} h-2.5 rounded-full transition-all" style="width:0%"></div>
+    </div>
+</div>
+{% endmacro %}
+
 
 {# Tab Header Component #}
 {% macro tab_header(title) %}

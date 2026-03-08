@@ -1,12 +1,14 @@
-<!-- Main Navigation -->
+{# Navigation — active_page is set by each Flask route #}
 <div class="bg-gray-800 border-b border-gray-700 sticky top-0 z-50">
-    <nav class="flex overflow-x-auto">
-        <button class="tab-btn active" onclick="showTab('portfolio')">Portfolio</button>
-        <button class="tab-btn" onclick="showTab('symbols')">Symbols</button>
-        <button class="tab-btn" onclick="showTab('strategies')">Strategies</button>
-        <button class="tab-btn" onclick="showTab('policies')">Policies</button>
-        <button id="system-tab-btn" class="tab-btn" onclick="showTab('system')">
+    <nav class="max-w-7xl mx-auto flex overflow-x-auto">
+        <a href="/"          class="tab-btn {% if active_page == 'portfolio'   %}active{% endif %}">Portfolio</a>
+        <a href="/symbols"   class="tab-btn {% if active_page == 'symbols'    %}active{% endif %}">Symbols</a>
+        <a href="/strategies"class="tab-btn {% if active_page == 'strategies' %}active{% endif %}">Strategies</a>
+        <a href="/policies"  class="tab-btn {% if active_page == 'policies'   %}active{% endif %}">Policies</a>
+        <a href="/system"    class="tab-btn {% if active_page == 'system'     %}active{% endif %}" id="system-nav-link">
             System
             <span id="system-health-indicator" class="inline-block w-2 h-2 rounded-full ml-1.5 bg-gray-500" title="Loading..."></span>
-        </button>        <button class="tab-btn" onclick="showTab('reports')">📊 Reports</button>    </nav>
+        </a>
+        <a href="/reports"   class="tab-btn {% if active_page == 'reports'    %}active{% endif %}">📊 Reports</a>
+    </nav>
 </div>

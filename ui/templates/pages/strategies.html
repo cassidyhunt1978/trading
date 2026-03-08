@@ -1,0 +1,45 @@
+{% extends 'base.html' %}
+{% from 'components/macros.html' import action_btn, filter_btn %}
+
+{% block title %}Strategies — Crypto Trading{% endblock %}
+
+{% block content %}
+<div class="p-4">
+
+    {# ── Header ── #}
+    <div class="flex justify-between items-center mb-4">
+        <h2 class="text-2xl font-bold">Strategy Lab</h2>
+        <div class="flex gap-2">
+            {{ action_btn('🚀 Bulk Optimize All', 'bulkOptimizeAll()', 'purple') }}
+            {{ action_btn('+ New Strategy',       'showCreateStrategy()') }}
+        </div>
+    </div>
+
+    {# ── Filter Controls ── #}
+    <div class="flex gap-2 mb-4">
+        {{ filter_btn('filter-all-strategies',      'All',          "filterStrategies('all')",      active=true) }}
+        {{ filter_btn('filter-active-strategies',   'Active Only',  "filterStrategies('active')") }}
+        {{ filter_btn('filter-inactive-strategies', 'Inactive Only',"filterStrategies('inactive')") }}
+    </div>
+
+    {# ── Strategy Cards Grid ── #}
+    <div id="strategies-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+        {# Populated by loadStrategies() #}
+    </div>
+
+    {# ── Strategy Detail Modal ── #}
+    {% include 'components/modals/strategy_detail_modal.html' %}
+
+    {# ── Create Strategy Modal ── #}
+    {% include 'components/modals/create_strategy_modal.html' %}
+
+</div>
+
+{# ── Ensemble Backtest Modal ── #}
+{% include 'modals/ensemble_backtest.html' %}
+{% endblock %}
+
+{% block page_scripts %}
+<script src="/js/pnl_card.js"></script>
+<script src="/js/pages/strategies.js"></script>
+{% endblock %}

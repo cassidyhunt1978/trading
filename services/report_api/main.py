@@ -1,6 +1,7 @@
 """Report API - Accountability & Proof Dashboard (Port 8023)"""
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from typing import List, Dict, Optional, Any
 from datetime import datetime, date, timedelta, timezone
 import sys
@@ -14,6 +15,20 @@ from shared.logging_config import setup_logging
 
 settings = get_settings()
 logger = setup_logging('report_api', settings.log_level)
+
+# ── Simple TTL response cache ────────────────────────────────────────────────
+import time as _time
+_resp_cache: dict = {}
+
+def _cache_get(key: str):
+    entry = _resp_cache.get(key)
+    if entry and _time.monotonic() < entry[1]:
+        return entry[0]
+    return None
+
+def _cache_set(key: str, value, ttl: float = 45.0):
+    _resp_cache[key] = (value, _time.monotonic() + ttl)
+# ─────────────────────────────────────────────────────────────────────────────
 
 app = FastAPI(title="Report API", version="1.0.0")
 
@@ -78,6 +93,10 @@ def equity_curve(days: int = Query(30, ge=1, le=365)):
 @app.get("/daily_log")
 def daily_log(days: int = Query(30, ge=1, le=180)):
     """Daily P&L log. Uses daily_profitability_log if populated, otherwise computes from positions."""
+    cache_key = f"daily_log:{days}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
     since = date.today() - timedelta(days=days)
     try:
         with get_connection() as conn:
@@ -150,7 +169,9 @@ def daily_log(days: int = Query(30, ge=1, le=180)):
                             "total_fees":   float(r["total_fees"]),
                         })
 
-        return {"days": days, "entries": entries, "count": len(entries)}
+        result = {"days": days, "entries": entries, "count": len(entries)}
+        _cache_set(cache_key, result, ttl=45.0)
+        return result
     except Exception as e:
         logger.error(f"daily_log error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -204,6 +225,10 @@ def trust_rankings(
     limit: int = Query(20, ge=1, le=500)
 ):
     """Top strategies ranked by trust_factor from symbol_strategies."""
+    cache_key = f"trust_rankings:{symbol}:{limit}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
@@ -235,7 +260,7 @@ def trust_rankings(
                         LIMIT %s
                     """, (limit,))
                 rows = cur.fetchall()
-        return {
+        result = {
             "symbol_filter": symbol,
             "rankings": [
                 {
@@ -253,6 +278,8 @@ def trust_rankings(
             ],
             "count": len(rows),
         }
+        _cache_set(cache_key, result, ttl=60.0)
+        return result
     except Exception as e:
         logger.error(f"trust_rankings error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -455,6 +482,233 @@ def daily_report(report_date: Optional[str] = Query(None)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ──────────────────────────────────────────────────────────────────
+#  Pro-Grade: Composite Trust Score per Symbol
+# ──────────────────────────────────────────────────────────────────
+
+@app.get("/trust_score/{symbol}")
+def trust_score(symbol: str):
+    """Composite trust score: backtest PF + walk-forward PF + regime alignment + prediction accuracy."""
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                # One CTE query replaces four sequential round-trips
+                cur.execute("""
+                    WITH bt AS (
+                        SELECT MAX(profit_factor) AS best_pf,
+                               MAX(trust_factor)  AS best_trust,
+                               MAX(win_rate)       AS best_win
+                        FROM symbol_strategies
+                        WHERE symbol = %(sym)s AND total_trades >= 3
+                    ),
+                    wf AS (
+                        SELECT AVG(wfr.oos_profit_factor) AS avg_wf_pf,
+                               COUNT(*)                    AS num_windows
+                        FROM walk_forward_results wfr
+                        JOIN symbol_strategies ss
+                             ON ss.strategy_id = wfr.strategy_id AND ss.symbol = %(sym)s
+                        WHERE wfr.training_end >= NOW() - INTERVAL '90 days'
+                    ),
+                    reg AS (
+                        SELECT regime, regime_confidence
+                        FROM market_regime
+                        WHERE symbol = %(sym)s
+                        ORDER BY detected_at DESC LIMIT 1
+                    ),
+                    pred AS (
+                        SELECT true_predictions, false_predictions
+                        FROM price_predictions
+                        WHERE symbol = %(sym)s
+                        ORDER BY created_at DESC LIMIT 1
+                    )
+                    SELECT bt.best_pf, bt.best_trust, bt.best_win,
+                           wf.avg_wf_pf, wf.num_windows,
+                           reg.regime, reg.regime_confidence,
+                           pred.true_predictions, pred.false_predictions
+                    FROM (SELECT 1) AS _
+                    LEFT JOIN bt   ON true
+                    LEFT JOIN wf   ON true
+                    LEFT JOIN reg  ON true
+                    LEFT JOIN pred ON true
+                """, {"sym": symbol})
+                row = cur.fetchone()
+
+        backtest_pf  = float(row["best_pf"])    if row and row["best_pf"]    else 0.0
+        trust_factor = float(row["best_trust"]) if row and row["best_trust"] else 0.0
+        wf_pf        = float(row["avg_wf_pf"])  if row and row["avg_wf_pf"]  else 0.0
+        wf_windows   = int(row["num_windows"])  if row and row["num_windows"] else 0
+
+        regime       = (row["regime"] or "unknown").lower() if row and row["regime"] else "unknown"
+        regime_conf  = float(row["regime_confidence"]) if row and row["regime_confidence"] else 0.5
+        if "bull" in regime or "break" in regime:
+            regime_alignment = regime_conf
+        elif "bear" in regime:
+            regime_alignment = 1.0 - regime_conf
+        else:
+            regime_alignment = 0.5
+
+        if row and (row["true_predictions"] or row["false_predictions"]):
+            tp = int(row["true_predictions"] or 0)
+            fp = int(row["false_predictions"] or 0)
+            prediction_accuracy = tp / max(tp + fp, 1)
+        else:
+            prediction_accuracy = 0.5
+
+        wf_norm = min(1.0, wf_pf / 2.0)
+        trust_score_val = (
+            trust_factor        * 0.40 +
+            wf_norm             * 0.25 +
+            regime_alignment    * 0.20 +
+            prediction_accuracy * 0.15
+        )
+
+        return {
+            "symbol": symbol,
+            "trust_score": round(trust_score_val, 4),
+            "backtest_pf": round(backtest_pf, 4),
+            "trust_factor": round(trust_factor, 4),
+            "walkfwd_pf": round(wf_pf, 4),
+            "wf_windows": wf_windows,
+            "regime": regime,
+            "regime_alignment": round(regime_alignment, 4),
+            "prediction_accuracy": round(prediction_accuracy, 4),
+        }
+    except Exception as e:
+        logger.error(f"trust_score error for {symbol}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ──────────────────────────────────────────────────────────────────
+#  Walk-Forward Results per Symbol
+# ──────────────────────────────────────────────────────────────────
+
+@app.get("/walkforward/{symbol}")
+def walkforward_symbol(symbol: str):
+    """Walk-forward folds and summary for a symbol."""
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT
+                        s.name AS strategy_name,
+                        wfr.test_start, wfr.test_end,
+                        wfr.oos_profit_factor, wfr.oos_win_rate,
+                        wfr.oos_total_trades, wfr.oos_return_pct
+                    FROM walk_forward_results wfr
+                    JOIN strategies s ON s.id = wfr.strategy_id
+                    JOIN symbol_strategies ss ON ss.strategy_id = wfr.strategy_id AND ss.symbol = %s
+                    ORDER BY wfr.test_end DESC
+                    LIMIT 20
+                """, (symbol,))
+                rows = cur.fetchall()
+
+        if not rows:
+            return {"symbol": symbol, "folds": [], "summary": {}, "num_windows": 0}
+
+        folds = []
+        for r in rows:
+            ts_str = str(r["test_start"])[:10] if r["test_start"] else "?"
+            te_str = str(r["test_end"])[:10]   if r["test_end"]   else "?"
+            folds.append({
+                "name": r["strategy_name"],
+                "period": f"{ts_str} → {te_str}",
+                "profit_factor": float(r["oos_profit_factor"]) if r["oos_profit_factor"] else 0.0,
+                "win_rate": float(r["oos_win_rate"]) if r["oos_win_rate"] else 0.0,
+                "trades": r["oos_total_trades"] or 0,
+                "return_pct": float(r["oos_return_pct"]) if r["oos_return_pct"] else 0.0,
+            })
+
+        pfs  = [f["profit_factor"] for f in folds]
+        wrs  = [f["win_rate"]      for f in folds]
+        avg_pf      = sum(pfs) / len(pfs) if pfs else 0
+        avg_wr      = sum(wrs) / len(wrs) if wrs else 0
+        consistency = sum(1 for p in pfs if p >= 1.0) / len(pfs) if pfs else 0
+
+        return {
+            "symbol": symbol,
+            "folds": folds,
+            "num_windows": len(folds),
+            "summary": {
+                "avg_profit_factor": round(avg_pf, 4),
+                "avg_win_rate": round(avg_wr, 4),
+                "consistency": round(consistency, 4),
+            },
+        }
+    except Exception as e:
+        logger.error(f"walkforward error for {symbol}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ──────────────────────────────────────────────────────────────────
+#  Import Chart Strategy (from chart export button)
+# ──────────────────────────────────────────────────────────────────
+
+class ChartStrategyImport(BaseModel):
+    symbol: str
+    strategy_id: Any
+    timeframe: str = "15m"
+    source: str = "chart_export"
+    notes: Optional[str] = None
+
+
+@app.post("/import_charts_strategy")
+def import_charts_strategy(payload: ChartStrategyImport):
+    """Persist a chart-selected strategy for a symbol and trigger refinement."""
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                strategy_db_id = None
+                try:
+                    strategy_db_id = int(payload.strategy_id)
+                except (ValueError, TypeError):
+                    cur.execute("SELECT id FROM strategies WHERE name = %s LIMIT 1", (str(payload.strategy_id),))
+                    row = cur.fetchone()
+                    if row:
+                        strategy_db_id = row["id"]
+
+                if not strategy_db_id:
+                    raise HTTPException(status_code=404, detail=f"Strategy '{payload.strategy_id}' not found")
+
+                cur.execute("""
+                    INSERT INTO symbol_strategies (symbol, strategy_id, status, metadata, updated_at)
+                    VALUES (%s, %s, 'active',
+                            jsonb_build_object('source', %s, 'timeframe', %s, 'imported_at', NOW()::text),
+                            NOW())
+                    ON CONFLICT (symbol, strategy_id)
+                    DO UPDATE SET
+                        status     = 'active',
+                        metadata   = symbol_strategies.metadata || EXCLUDED.metadata,
+                        updated_at = NOW()
+                """, (payload.symbol, strategy_db_id, payload.source, payload.timeframe))
+                conn.commit()
+
+        logger.info(f"chart_strategy_imported symbol={payload.symbol} strategy={strategy_db_id} tf={payload.timeframe}")
+
+        # Trigger refinement (non-critical, fire-and-forget)
+        try:
+            import requests as _req
+            _req.post(
+                f"http://{settings.service_host}:{settings.port_optimization_api}/optimize/symbol",
+                json={"symbol": payload.symbol, "strategy_id": strategy_db_id, "reason": "chart_export"},
+                timeout=3,
+            )
+        except Exception:
+            pass
+
+        return {
+            "status": "imported",
+            "symbol": payload.symbol,
+            "strategy_id": strategy_db_id,
+            "timeframe": payload.timeframe,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"import_charts_strategy error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8023, log_level=settings.log_level.lower())
+    uvicorn.run("services.report_api.main:app", host="0.0.0.0", port=8023,
+                log_level=settings.log_level.lower(), workers=4)

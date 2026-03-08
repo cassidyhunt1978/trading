@@ -1,0 +1,119 @@
+{#
+  create_strategy_modal.html — Create new strategy form modal.
+  Shown by showCreateStrategy() / closed by closeCreateStrategy() in strategies.js
+#}
+<div id="create-strategy-modal" class="modal-overlay">
+    <div class="modal-content p-6">
+        <div class="flex justify-between items-center mb-4">
+            <h3 class="text-xl font-bold">Create Strategy</h3>
+            <button onclick="closeCreateStrategy()" class="text-gray-400 hover:text-white text-2xl">&times;</button>
+        </div>
+
+        <form id="strategy-form" class="space-y-4">
+            <div>
+                <label class="block text-sm font-semibold mb-1">Strategy Name</label>
+                <input type="text" id="strategy-name"
+                    class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2"
+                    placeholder="My RSI Strategy" required>
+            </div>
+
+            <div>
+                <label class="block text-sm font-semibold mb-1">Description</label>
+                <textarea id="strategy-desc"
+                    class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2"
+                    rows="2" placeholder="Buy when RSI < 30, sell when RSI > 70"></textarea>
+            </div>
+
+            {# Indicator Selection #}
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-semibold mb-1">Buy Indicator</label>
+                    <select id="buy-indicator" onchange="updateParameterFields()"
+                        class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2">
+                        <option value="RSI_14">RSI</option>
+                        <option value="MACD">MACD</option>
+                        <option value="SMA_20">SMA</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-semibold mb-1">Buy Condition</label>
+                    <div class="flex gap-2">
+                        <select id="buy-operator"
+                            class="bg-gray-800 border border-gray-700 rounded px-2 py-2">
+                            <option value="<">&lt;</option>
+                            <option value=">">&gt;</option>
+                            <option value="=">=</option>
+                        </select>
+                        <input type="number" id="buy-value"
+                            class="flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-2"
+                            placeholder="30" required>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-semibold mb-1">Sell Indicator</label>
+                    <select id="sell-indicator" onchange="updateParameterFields()"
+                        class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2">
+                        <option value="RSI_14">RSI</option>
+                        <option value="MACD">MACD</option>
+                        <option value="SMA_20">SMA</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-semibold mb-1">Sell Condition</label>
+                    <div class="flex gap-2">
+                        <select id="sell-operator"
+                            class="bg-gray-800 border border-gray-700 rounded px-2 py-2">
+                            <option value="<">&lt;</option>
+                            <option value=">" selected>&gt;</option>
+                            <option value="=">=</option>
+                        </select>
+                        <input type="number" id="sell-value"
+                            class="flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-2"
+                            placeholder="70" required>
+                    </div>
+                </div>
+            </div>
+
+            {# Adjustable Parameters #}
+            <div class="border-t border-gray-700 pt-4">
+                <div class="flex justify-between items-center mb-3">
+                    <h4 class="font-semibold text-blue-400">Strategy Parameters</h4>
+                    <span class="text-xs text-gray-500">These become adjustable per symbol</span>
+                </div>
+                <div id="parameter-fields" class="space-y-3">
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-xs text-gray-400 mb-1">RSI Period</label>
+                            <input type="number" id="param-rsi_period" value="14" min="7" max="30"
+                                class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2">
+                        </div>
+                        <div>
+                            <label class="block text-xs text-gray-400 mb-1">RSI Oversold</label>
+                            <input type="number" id="param-rsi_oversold" value="30" min="10" max="40"
+                                class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2">
+                        </div>
+                        <div>
+                            <label class="block text-xs text-gray-400 mb-1">RSI Overbought</label>
+                            <input type="number" id="param-rsi_overbought" value="70" min="60" max="90"
+                                class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex gap-3 pt-4">
+                <button type="submit"
+                    class="flex-1 bg-green-600 hover:bg-green-700 py-2 rounded-lg font-semibold">
+                    Create Strategy
+                </button>
+                <button type="button" onclick="closeCreateStrategy()"
+                    class="flex-1 bg-gray-700 hover:bg-gray-600 py-2 rounded-lg font-semibold">
+                    Cancel
+                </button>
+            </div>
+        </form>
+    </div>
+</div>

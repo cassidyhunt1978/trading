@@ -21,6 +21,19 @@ from shared.logging_config import setup_logging
 settings = get_settings()
 logger = setup_logging('portfolio_api', settings.log_level)
 
+# ── Simple TTL response cache ────────────────────────────────────────────────
+_resp_cache: dict = {}
+
+def _cache_get(key: str):
+    entry = _resp_cache.get(key)
+    if entry and time.monotonic() < entry[1]:
+        return entry[0]
+    return None
+
+def _cache_set(key: str, value, ttl: float = 45.0):
+    _resp_cache[key] = (value, time.monotonic() + ttl)
+# ─────────────────────────────────────────────────────────────────────────────
+
 class DecimalEncoder(json.JSONEncoder):
     """Custom JSON encoder that converts Decimal to float"""
     def default(self, obj):
@@ -809,6 +822,73 @@ def save_portfolio_snapshot(mode: str):
                 psycopg2.extras.Json(clean_positions)
             ))
 
+@app.get("/summary")
+def get_summary(mode: str = Query("paper", regex="^(paper|live)$")):
+    """Fast single-query dashboard summary for the realtime polling loop.
+
+    Returns everything the portfolio header needs in one round-trip:
+    total_capital, available_capital, daily_pnl, open_positions,
+    win_rate (all-time closed trades), active_signals.
+    """
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    WITH snap AS (
+                        SELECT total_capital, available_capital,
+                               COALESCE(daily_pnl, 0) AS daily_pnl
+                        FROM portfolio_snapshots
+                        WHERE mode = %(mode)s
+                        ORDER BY timestamp DESC LIMIT 1
+                    ),
+                    pos_agg AS (
+                        SELECT
+                            COUNT(*) FILTER (WHERE status = 'open')  AS open_positions,
+                            COUNT(*) FILTER (WHERE status = 'closed'
+                                             AND trade_result = 'win')               AS wins,
+                            COUNT(*) FILTER (WHERE status = 'closed'
+                                             AND trade_result IN ('win','loss'))     AS decided
+                        FROM positions
+                        WHERE mode = %(mode)s
+                    ),
+                    sig_agg AS (
+                        SELECT COUNT(*) AS active_signals
+                        FROM signals
+                        WHERE acted_on = false AND expires_at > NOW()
+                    )
+                    SELECT
+                        COALESCE(s.total_capital,    %(default_cap)s) AS total_capital,
+                        COALESCE(s.available_capital,%(default_cap)s) AS available_capital,
+                        COALESCE(s.daily_pnl, 0)                      AS daily_pnl,
+                        p.open_positions,
+                        CASE WHEN p.decided > 0
+                             THEN ROUND(100.0 * p.wins / p.decided, 1)
+                             ELSE 0 END                                AS win_rate,
+                        sg.active_signals
+                    FROM pos_agg p, sig_agg sg
+                    LEFT JOIN snap s ON true
+                """, {"mode": mode, "default_cap": settings.paper_starting_capital})
+                row = cur.fetchone()
+
+        if not row:
+            return {"status": "error", "detail": "No data"}
+
+        return {
+            "status": "success",
+            "mode": mode,
+            "total_capital":     float(row["total_capital"]),
+            "available_capital": float(row["available_capital"]),
+            "daily_pnl":         float(row["daily_pnl"]),
+            "open_positions":    int(row["open_positions"] or 0),
+            "win_rate":          float(row["win_rate"] or 0),
+            "active_signals":    int(row["active_signals"] or 0),
+        }
+
+    except Exception as e:
+        logger.error("summary_error", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/performance")
 def get_performance(
     mode: str = Query("paper", regex="^(paper|live)$"),
@@ -893,6 +973,10 @@ def get_stats(mode: str = Query("paper", regex="^(paper|live)$")):
 @app.get("/symbols/stats")
 def get_symbol_stats(mode: str = Query("paper", regex="^(paper|live)$")):
     """Get per-symbol trading statistics including win rates and fees"""
+    cache_key = f"symbols_stats:{mode}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
@@ -966,11 +1050,13 @@ def get_symbol_stats(mode: str = Query("paper", regex="^(paper|live)$")):
                 stats = [dict(row) for row in cur.fetchall()]
                 
                 logger.info("symbol_stats_fetched", mode=mode, symbols=len(stats))
-                return {
+                result = {
                     "status": "success",
                     "mode": mode,
                     "symbols": stats
                 }
+                _cache_set(cache_key, result, ttl=45.0)
+                return result
     
     except Exception as e:
         logger.error("symbol_stats_error", error=str(e))
@@ -1200,7 +1286,7 @@ def daily_allocation(req: DailyAllocationRequest):
                 cur.execute("""
                     SELECT available_capital, total_capital
                     FROM portfolio_snapshots
-                    ORDER BY snapshot_time DESC LIMIT 1
+                    ORDER BY timestamp DESC LIMIT 1
                 """)
                 snap = cur.fetchone()
                 available = float(snap['available_capital']) if snap else settings.paper_starting_capital

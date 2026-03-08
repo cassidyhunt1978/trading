@@ -1,0 +1,105 @@
+{% extends 'base.html' %}
+{% from 'components/macros.html' import action_btn %}
+
+{% block title %}Portfolio — Crypto Trading{% endblock %}
+
+{% block content %}
+<div class="p-4">
+
+    {# ── Real-time status bar ── #}
+    {% include 'components/cards/realtime_bar.html' %}
+
+    {# ── Compact stats header + equity curve ── #}
+    {% include 'components/cards/dashboard_header.html' %}
+
+    {# ── Portfolio highlights row: discoveries / strategies / regimes ── #}
+    {% include 'components/cards/highlights_row.html' %}
+
+    {# ── P&L Summary Card (populated by loadPnlCard) ── #}
+    {% include 'components/pnl_card.html' %}
+
+    {# ── Active Ensemble Signals ── #}
+    <div class="bg-gray-800 rounded-xl border border-gray-700 p-3 mb-4">
+        <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+            <div>
+                <div class="flex items-center gap-2">
+                    <span class="text-base">🎯</span>
+                    <span class="font-semibold text-sm">Ensemble Signals</span>
+                    <span id="port-signal-count" class="text-xs bg-blue-600 text-white rounded-full px-2">0</span>
+                </div>
+                <div class="text-xs text-gray-500 mt-0.5">Weighted consensus · avg score <span id="port-avg-score" class="text-gray-300">--</span></div>
+            </div>
+            <div class="flex gap-2 items-center">
+                <select id="port-signal-threshold" onchange="loadPortfolioSignals()" class="bg-gray-700 px-2 py-1 rounded text-xs border border-gray-600">
+                    <option value="60">60+</option>
+                    <option value="70" selected>70+</option>
+                    <option value="80">80+</option>
+                </select>
+                <button onclick="loadPortfolioSignals()" class="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs">↻</button>
+            </div>
+        </div>
+        <div id="port-signals-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+            <div class="text-center py-4 text-gray-500 text-xs col-span-3">Loading signals...</div>
+        </div>
+    </div>
+
+    {# ── Open Positions ── #}
+    <div class="bg-gray-800 rounded-xl border border-gray-700 p-3 mb-4">
+        <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center gap-2">
+                <span class="text-base">📋</span>
+                <span class="font-semibold text-sm">Open Positions</span>
+                <span id="port-open-count" class="text-xs bg-purple-700 text-white rounded-full px-2">0</span>
+            </div>
+            <div class="flex gap-1">
+                <button onclick="filterPortfolioPositions('all')"      id="pp-filter-all"      class="px-2 py-0.5 rounded bg-blue-600 text-xs text-white">All</button>
+                <button onclick="filterPortfolioPositions('ensemble')" id="pp-filter-ensemble" class="px-2 py-0.5 rounded bg-gray-700 text-xs hover:bg-gray-600">🎯 Ensemble</button>
+                <button onclick="filterPortfolioPositions('strategy')" id="pp-filter-strategy" class="px-2 py-0.5 rounded bg-gray-700 text-xs hover:bg-gray-600">🧪 Test</button>
+                <button onclick="loadPortfolioPositions()" class="px-2 py-0.5 bg-gray-700 hover:bg-gray-600 rounded text-xs">↻</button>
+            </div>
+        </div>
+        <div id="port-positions-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+            <div class="text-center py-4 text-gray-500 text-xs col-span-3">Loading positions...</div>
+        </div>
+    </div>
+
+    {# ── Hidden ghost elements required by pnl_card.js internals ── #}
+    <div style="display:none" aria-hidden="true">
+        <span id="pnl-portfolio-value"></span><span id="pnl-total-capital"></span>
+        <span id="pnl-available-capital"></span><span id="pnl-available-pct"></span>
+        <span id="pnl-open-positions"></span><span id="pnl-deployed-capital"></span>
+        <span id="pnl-unrealized"></span><span id="pnl-unrealized-pct"></span>
+        <span id="pnl-daily"></span><span id="pnl-daily-pct"></span>
+        <span id="pnl-total"></span><span id="pnl-total-pct"></span>
+        <span id="pnl-win-rate"></span><span id="pnl-win-ratio"></span>
+        <span id="pnl-avg-trade"></span><span id="pnl-trades-today"></span>
+        <span id="pnl-starting-capital"></span><span id="pnl-capital-source"></span>
+        <span id="pnl-portfolio-change"></span><span id="pnl-mode-label"></span>
+        <span id="pnl-timezone-info"></span><span id="activity-last-candles"></span>
+        <span id="activity-last-signal"></span><span id="activity-active-signals"></span>
+        <span id="activity-ensemble-trades"></span><span id="activity-strategy-trades"></span>
+        <span id="activity-last-trade"></span><span id="activity-workers"></span>
+        <span id="system-activity-status"></span><span id="top-symbols-list"></span>
+        <span id="top-strategies-list"></span><span id="pnl-trades-count"></span>
+        <span id="pnl-total-fees"></span><span id="pnl-avg-size"></span>
+        <span id="pnl-positions-count"></span><span id="pnl-evaluations-count"></span>
+        <span id="pnl-blacklist-count"></span><span id="ensemble-count"></span>
+        <span id="ensemble-avg-score"></span><span id="dash-last-signal"></span>
+        <div id="pnl-progress-bar"></div><div id="pnl-live-breakdown"></div>
+        <div id="pnl-live-balances"></div><div id="pnl-positions-list"></div>
+        <div id="pnl-evaluations-list"></div><div id="pnl-blacklist-list"></div>
+        <div id="pnl-details-content"></div><div id="positions-container"></div>
+        <div id="paper-positions-container"></div>
+        <select id="ensemble-threshold"><option value="70" selected>70+</option></select>
+    </div>
+
+</div>
+
+{# ── Ensemble Backtest Modal ── #}
+{% include 'modals/ensemble_backtest.html' %}
+{% endblock %}
+
+{% block page_scripts %}
+<script src="/js/pnl_card.js"></script>
+<script src="/js/pages/portfolio.js"></script>
+{% endblock %}

@@ -61,6 +61,8 @@
     
     <!-- Modal Overlay -->
     {% include 'modals/modal_overlay.html' %}
+    <!-- Drill-down / Symbol-Analysis Modals -->
+    {% include 'modals/drilldown_modal.html' %}
     
     <!-- Core Modules (loaded before main app script) -->
     <script src="/js/config.js"></script>
@@ -74,6 +76,8 @@
     
     <!-- P&L Card Component -->
     <script src="/js/pnl_card.js"></script>
+    <!-- Real-time SSE/Polling Module -->
+    <script src="/js/realtime.js"></script>
     
     <!-- Main Application Script -->
     <script>
@@ -90,23 +94,23 @@
             return loadSymbols();
         }
         window.loadSymbolsFull = loadSymbolsFull;
+        window.loadSymbols = loadSymbols;
 
         async function loadSymbols() {
             try {
-                // Fetch symbols list and per-symbol stats (with trust) in parallel
+                // Phase 1: fetch only the fast endpoints, render cards immediately
                 const [symResp, statsResp] = await Promise.allSettled([
                     fetch(`http://${window.API_HOST}:8012/symbols`),
                     fetch(`http://${window.API_HOST}:8016/symbols/stats?mode=paper`)
                 ]);
 
-                const symData  = symResp.status === 'fulfilled' && symResp.value.ok   ? await symResp.value.json()   : {};
+                const symData   = symResp.status === 'fulfilled'  && symResp.value.ok  ? await symResp.value.json()  : {};
                 const statsData = statsResp.status === 'fulfilled' && statsResp.value.ok ? await statsResp.value.json() : {};
 
                 const symbols = symData.symbols || [];
                 const statsMap = {};
                 (statsData.symbols || []).forEach(s => { statsMap[s.symbol] = s; });
 
-                // Merge trust/stats into symbol objects
                 const merged = symbols.map(s => ({
                     ...s,
                     best_trust_factor: parseFloat(statsMap[s.symbol]?.best_trust_factor || 0),
@@ -115,22 +119,47 @@
                     trades_30d: parseInt(statsMap[s.symbol]?.trades_30d || 0),
                     pnl_30d: parseFloat(statsMap[s.symbol]?.pnl_30d || 0),
                 }));
-
-                // Sort by trust desc, then alphabetically
                 merged.sort((a, b) => (b.best_trust_factor - a.best_trust_factor) || a.symbol.localeCompare(b.symbol));
 
                 window._symbolsCache = merged;
-                renderSymbolCardsFromCache();
+                renderSymbolCardsFromCache();   // ← cards visible immediately
 
-                // Load/refresh live data for each
-                symbols.forEach(s => loadSymbolData(s.symbol));
-
-                // Load win/loss stats for all symbols
+                // Phase 2: async background — candles per symbol + one shared signals fetch
                 loadSymbolStats();
+                _loadLiveCardData(symbols);
             } catch (error) {
                 console.error('Error loading symbols:', error);
-                document.getElementById('symbols-grid').innerHTML = '<div class="text-red-400">Failed to load symbols</div>';
+                const g1 = document.getElementById('symbols-grid');
+                if (g1) g1.innerHTML = '<div class="text-red-400">Failed to load symbols</div>';
             }
+        }
+
+        // Fetch candles per symbol + one signals bulk fetch, update cards without blocking render
+        async function _loadLiveCardData(symbols) {
+            // Single signals request for all symbols
+            let allSignals = [];
+            try {
+                const sigResp = await fetch(`http://${window.API_HOST}:8015/signals/active?min_quality=0`, { signal: AbortSignal.timeout(15000) });
+                if (sigResp.ok) {
+                    const d = await sigResp.json();
+                    allSignals = d.signals || [];
+                }
+            } catch(e) { /* signals optional */ }
+
+            // Update signal counters on cards
+            symbols.forEach(s => {
+                const sym = s.symbol || s;
+                const symbolSignals = allSignals.filter(sig => sig.symbol === sym);
+                const buyEl  = document.getElementById(`buy-${sym}`);
+                const sellEl = document.getElementById(`sell-${sym}`);
+                const sigEl  = document.getElementById(`signals-${sym}`);
+                if (buyEl)  buyEl.textContent  = symbolSignals.filter(sig => sig.direction === 'buy').length;
+                if (sellEl) sellEl.textContent = symbolSignals.filter(sig => sig.direction === 'sell').length;
+                if (sigEl)  sigEl.textContent  = symbolSignals.length;
+            });
+
+            // Candle fetches (price / 24h change) — run concurrently but don't block anything
+            await Promise.allSettled(symbols.map(s => loadSymbolData(s.symbol || s)));
         }
 
         function renderSymbolCardsFromCache() {
@@ -162,9 +191,9 @@
         }
 
         function renderSymbolCards(symbols) {
-            const grid = document.getElementById('symbols-grid');
-            
-            grid.innerHTML = symbols.map(s => `
+            const grid1 = document.getElementById('symbols-grid');
+            if (!grid1) return;
+            const html = symbols.map(s => `
                 <div class="symbol-card">
                     <!-- Header -->
                     <div class="flex items-start justify-between mb-3">
@@ -254,71 +283,36 @@
                     </div>
                 </div>
             `).join('');
+            grid1.innerHTML = html;
         }
         
         // Load Symbol Data
         async function loadSymbolData(symbol) {
             try {
-                // Parallel fetch with timeouts
-                const [candleResponse, signalsResponse] = await Promise.allSettled([
-                    fetch(`http://${window.API_HOST}:8012/candles?symbol=${symbol}&limit=30`, { 
-                        signal: AbortSignal.timeout(15000) 
-                    }),
-                    fetch(`http://${window.API_HOST}:8015/signals/active?min_quality=0`, { 
-                        signal: AbortSignal.timeout(10000) 
-                    })
-                ]);
-                
-                // Handle candles
-                if (candleResponse.status === 'fulfilled' && candleResponse.value.ok) {
-                    const candles = await candleResponse.value.json();
-                    const candleCount = candles.length || 0;
-                    
-                    document.getElementById(`candles-${symbol}`).textContent = candleCount;
-                    
-                    // Get latest price
-                    if (candles.length > 0) {
-                        const latest = candles[candles.length - 1];
-                        const price = latest.close;
-                        const priceEl = document.getElementById(`price-${symbol}`);
-                        if (priceEl) {
-                            priceEl.textContent = `$${price.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
-                        }
-                        
-                        // Calculate 24h change (if we have enough data)
-                        if (candles.length > 24) {
-                            const dayAgo = candles[candles.length - 25];
-                            const change = ((price - dayAgo.close) / dayAgo.close) * 100;
-                            const changeEl = document.getElementById(`change-${symbol}`);
-                            if (changeEl) {
-                                changeEl.textContent = `${change >= 0 ? '+' : ''}${change.toFixed(2)}%`;
-                                changeEl.className = change >= 0 ? 'text-sm price-up' : 'text-sm price-down';
-                            }
+                const resp = await fetch(`http://${window.API_HOST}:8012/candles?symbol=${symbol}&limit=30`, {
+                    signal: AbortSignal.timeout(15000)
+                });
+                if (!resp || !resp.ok) return;
+                const candles = await resp.json();
+                const candleEl = document.getElementById(`candles-${symbol}`);
+                if (candleEl) candleEl.textContent = candles.length || 0;
+                if (candles.length > 0) {
+                    const latest = candles[candles.length - 1];
+                    const price = latest.close;
+                    const priceEl = document.getElementById(`price-${symbol}`);
+                    if (priceEl) priceEl.textContent = `$${price.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+                    if (candles.length > 24) {
+                        const dayAgo = candles[candles.length - 25];
+                        const change = ((price - dayAgo.close) / dayAgo.close) * 100;
+                        const changeEl = document.getElementById(`change-${symbol}`);
+                        if (changeEl) {
+                            changeEl.textContent = `${change >= 0 ? '+' : ''}${change.toFixed(2)}%`;
+                            changeEl.className = change >= 0 ? 'text-sm price-up' : 'text-sm price-down';
                         }
                     }
-                } else if (candleResponse.status === 'rejected' && candleResponse.reason.name !== 'AbortError') {
-                    console.warn(`Failed to load candles for ${symbol}:`, candleResponse.reason);
                 }
-                
-                // Handle signals
-                if (signalsResponse.status === 'fulfilled' && signalsResponse.value.ok) {
-                    const signalsData = await signalsResponse.value.json();
-                    const signals = signalsData.signals || [];
-                    const symbolSignals = signals.filter(sig => sig.symbol === symbol);
-                    const buyCount = symbolSignals.filter(sig => sig.direction === 'buy').length;
-                    const sellCount = symbolSignals.filter(sig => sig.direction === 'sell').length;
-                    
-                    document.getElementById(`buy-${symbol}`).textContent = buyCount;
-                    document.getElementById(`sell-${symbol}`).textContent = sellCount;
-                    document.getElementById(`signals-${symbol}`).textContent = symbolSignals.length;
-                } else if (signalsResponse.status === 'rejected' && signalsResponse.reason.name !== 'AbortError') {
-                    console.warn(`Failed to load signals for ${symbol}:`, signalsResponse.reason);
-                }
-                
-            } catch (error) {
-                if (error.name !== 'AbortError') {
-                    console.error(`Error loading data for ${symbol}:`, error);
-                }
+            } catch (e) {
+                if (e.name !== 'AbortError') console.warn(`Candles failed for ${symbol}:`, e.message);
             }
         }
         
@@ -2059,7 +2053,7 @@
         async function loadSystemMetrics() {
             try {
                 const response = await fetch(`http://${window.API_HOST}:8021/metrics`, {
-                    signal: AbortSignal.timeout(3000)
+                    signal: AbortSignal.timeout(8000)
                 });
                 
                 if (!response.ok) {

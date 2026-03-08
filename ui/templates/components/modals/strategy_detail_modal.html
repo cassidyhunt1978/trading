@@ -1,0 +1,106 @@
+{#
+  strategy_detail_modal.html — Strategy details popup with chart, signal alignment, and P&L.
+  Controlled by viewStrategyDetails() / closeStrategyDetails() in strategies.js
+#}
+<div id="strategy-details-modal" class="modal-overlay">
+    <div class="modal-content p-6 max-w-6xl">
+        <div class="flex justify-between items-center mb-4">
+            <h3 class="text-xl font-bold" id="strategy-detail-name">Strategy Details</h3>
+            <button onclick="closeStrategyDetails()" class="text-gray-400 hover:text-white text-2xl">&times;</button>
+        </div>
+
+        <div class="space-y-3">
+            {# Symbol Selector #}
+            <div class="bg-gradient-to-br from-gray-800 to-gray-850 border border-gray-700 p-3 rounded-lg">
+                <label class="block text-xs font-medium text-gray-400 mb-1.5">Symbol</label>
+                <select id="strategy-detail-symbol" onchange="onSymbolChange();"
+                    class="w-full bg-gray-900 border border-gray-700 rounded px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none">
+                    <option value="">Loading symbols...</option>
+                </select>
+            </div>
+
+            {# Performance / P&L Summary #}
+            <div class="bg-gradient-to-br from-gray-800 to-gray-850 border border-gray-700 p-3 rounded-lg">
+                <div id="backtest-metrics" class="mb-3 pb-3 border-b border-gray-700 hidden">
+                    <div class="flex flex-wrap items-center gap-2 text-xs">
+                        <span class="px-2 py-0.5 bg-purple-500 bg-opacity-20 text-purple-300 rounded font-medium">Backtest</span>
+                        <div class="flex items-center gap-1.5">
+                            <span class="text-gray-500">Win</span>
+                            <span id="bt-winrate" class="font-semibold text-white">-</span>
+                        </div>
+                        <span class="text-gray-600">•</span>
+                        <div class="flex items-center gap-1.5">
+                            <span class="text-gray-500">Trades</span>
+                            <span id="bt-trades" class="font-semibold text-white">-</span>
+                        </div>
+                        <span class="text-gray-600">•</span>
+                        <div class="flex items-center gap-1.5">
+                            <span class="text-gray-500">Return</span>
+                            <span id="bt-return" class="font-semibold">-</span>
+                        </div>
+                        <span class="text-gray-600">•</span>
+                        <div class="flex items-center gap-1.5">
+                            <span class="text-gray-500">MaxDD</span>
+                            <span id="bt-drawdown" class="font-semibold text-red-400">-</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="flex flex-wrap items-center gap-2 text-xs">
+                    <span class="px-2 py-0.5 bg-blue-500 bg-opacity-20 text-blue-300 rounded font-medium">P&amp;L</span>
+                    <div class="flex items-center gap-1.5">
+                        <span class="text-gray-500">BT</span>
+                        <span id="backtest-pnl" class="font-semibold">-</span>
+                    </div>
+                    <span class="text-gray-600">•</span>
+                    <div class="flex items-center gap-1.5">
+                        <span class="text-gray-500">Paper</span>
+                        <span id="paper-pnl" class="font-semibold">-</span>
+                    </div>
+                    <span class="text-gray-600">•</span>
+                    <div class="flex items-center gap-1.5">
+                        <span class="text-gray-500">Live</span>
+                        <span id="live-pnl" class="font-semibold">-</span>
+                    </div>
+                </div>
+            </div>
+
+            {# Chart #}
+            <div class="bg-gradient-to-br from-gray-800 to-gray-850 border border-gray-700 p-4 rounded-lg">
+                <div class="flex justify-between items-center mb-3">
+                    <div class="flex items-center gap-2">
+                        <h4 class="text-base font-semibold">Chart</h4>
+                        <span class="text-xs text-gray-500">drag to scroll</span>
+                    </div>
+                    <button id="reset-zoom-btn" onclick="resetChartZoom()"
+                        class="bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded text-xs hidden transition-colors">
+                        Reset
+                    </button>
+                </div>
+                <div class="bg-gray-900 rounded-lg p-2" style="height:400px; position:relative;">
+                    <canvas id="strategy-chart"></canvas>
+                </div>
+                <div id="chart-loading" class="text-center text-gray-400 py-8 text-sm">Loading chart...</div>
+            </div>
+
+            {# Signal Alert Banner #}
+            <div id="signal-alert-banner" class="hidden"></div>
+
+            {# Signal Alignment #}
+            <div>
+                <div class="flex items-center gap-2 mb-2">
+                    <h4 class="text-base font-semibold">Alignment</h4>
+                    <span class="text-xs text-gray-500">click signal to jump</span>
+                </div>
+                <div id="signal-comparison-table" class="bg-gradient-to-br from-gray-800 to-gray-850 border border-gray-700 rounded-lg p-3 overflow-x-auto">
+                    <div class="text-center text-gray-400 text-sm">Loading...</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="mt-4 flex gap-2 justify-end">
+            <button onclick="closeStrategyDetails()" class="bg-gray-600 hover:bg-gray-700 px-4 py-2 rounded-lg">
+                Close
+            </button>
+        </div>
+    </div>
+</div>

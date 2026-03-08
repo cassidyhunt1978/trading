@@ -418,6 +418,29 @@ def get_symbols():
         logger.error("get_symbols_error", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/symbols/prices")
+def get_symbol_prices():
+    """Return the latest close price for every active symbol."""
+    try:
+        symbols = get_active_symbols()
+        prices = []
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                for s in symbols:
+                    sym = s['symbol'] if isinstance(s, dict) else s
+                    cur.execute("""
+                        SELECT close AS price FROM ohlcv_candles
+                        WHERE symbol = %s
+                        ORDER BY timestamp DESC LIMIT 1
+                    """, (sym,))
+                    row = cur.fetchone()
+                    if row:
+                        prices.append({"symbol": sym, "price": float(row["price"]), "change_24h": None})
+        return {"prices": prices}
+    except Exception as e:
+        logger.error("get_symbol_prices_error", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/symbols/add")
 def add_symbol(symbol_data: SymbolAdd):
     """Add a new trading symbol"""

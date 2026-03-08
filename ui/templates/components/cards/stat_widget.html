@@ -1,0 +1,9 @@
+{#
+  stat_widget.html — A single stat display block used across many pages.
+  Usage: {% include 'components/cards/stat_widget.html' with label='Win Rate', value_id='dash-winrate', value='--%', color='text-green-400' %}
+  Or via macro in macros.html (preferred).
+#}
+<div>
+    <div class="text-xs text-gray-500">{{ label }}</div>
+    <div class="text-lg font-semibold {{ color | default('text-white') }}" id="{{ value_id }}">{{ value | default('--') }}</div>
+</div>

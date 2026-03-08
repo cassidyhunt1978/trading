@@ -1,0 +1,14 @@
+{#
+  kpi_grid.html — Reusable 2- or 4-column KPI stat grid.
+  Pass items as a list of {id, label, color} dicts, or use directly with static IDs.
+  Used in reports, policies, portfolio pages.
+#}
+{% macro kpi_box(label, value_id, color='text-white', sub='', sub_id='') %}
+<div class="bg-gray-800 rounded-lg p-4 text-center">
+    <div class="text-xs text-gray-400 mb-1 uppercase tracking-wide">{{ label }}</div>
+    <div id="{{ value_id }}" class="text-2xl font-bold {{ color }}">—</div>
+    {% if sub or sub_id %}
+    <div class="text-xs text-gray-500 mt-1" {% if sub_id %}id="{{ sub_id }}"{% endif %}>{{ sub }}</div>
+    {% endif %}
+</div>
+{% endmacro %}

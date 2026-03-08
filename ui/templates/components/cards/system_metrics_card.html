@@ -1,0 +1,89 @@
+{#
+  system_metrics_card.html — CPU, Memory, Disk metrics card.
+  Populated by loadSystemMetrics() in system.js
+#}
+<div class="symbol-card">
+    <div class="flex items-center justify-between mb-4">
+        <h3 class="text-2xl font-bold">💻 System Metrics</h3>
+        <button onclick="loadSystemMetrics()" class="text-blue-400 hover:text-blue-300 text-sm">↻ Refresh</button>
+    </div>
+
+    {# CPU Usage #}
+    <div class="mb-4">
+        <div class="flex justify-between items-center mb-2">
+            <span class="text-sm font-semibold">CPU Usage</span>
+            <span id="cpu-percent" class="text-lg font-bold text-blue-400">--</span>
+        </div>
+        <div class="w-full bg-gray-700 rounded-full h-6">
+            <div id="cpu-bar" class="bg-gradient-to-r from-blue-500 to-blue-400 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-500" style="width:0%">
+                <span id="cpu-text">Loading...</span>
+            </div>
+        </div>
+        <div class="mt-2 grid grid-cols-3 gap-2 text-xs text-gray-400">
+            <div>Cores: <span id="cpu-count" class="text-white">--</span></div>
+            <div>Load 1m: <span id="cpu-load-1m" class="text-white">--</span></div>
+            <div>Load 5m: <span id="cpu-load-5m" class="text-white">--</span></div>
+        </div>
+    </div>
+
+    {# Memory Usage #}
+    <div class="mb-4">
+        <div class="flex justify-between items-center mb-2">
+            <span class="text-sm font-semibold">Memory Usage</span>
+            <span id="memory-percent" class="text-lg font-bold text-green-400">--</span>
+        </div>
+        <div class="w-full bg-gray-700 rounded-full h-6">
+            <div id="memory-bar" class="bg-gradient-to-r from-green-500 to-green-400 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-500" style="width:0%">
+                <span id="memory-text">Loading...</span>
+            </div>
+        </div>
+        <div class="mt-2 grid grid-cols-3 gap-2 text-xs text-gray-400">
+            <div>Used: <span id="memory-used" class="text-white">--</span></div>
+            <div>Free: <span id="memory-available" class="text-white">--</span></div>
+            <div>Total: <span id="memory-total" class="text-white">--</span></div>
+        </div>
+        <div class="mt-2 text-xs text-gray-400">
+            Swap: <span id="swap-used" class="text-white">--</span> / <span id="swap-total" class="text-white">--</span>
+            (<span id="swap-percent" class="text-yellow-400">--</span>)
+        </div>
+    </div>
+
+    {# Disk Usage #}
+    <div class="mb-4">
+        <div class="flex justify-between items-center mb-2">
+            <span class="text-sm font-semibold">Disk Usage</span>
+            <span id="disk-percent" class="text-lg font-bold text-purple-400">--</span>
+        </div>
+        <div class="w-full bg-gray-700 rounded-full h-6">
+            <div id="disk-bar" class="bg-gradient-to-r from-purple-500 to-purple-400 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-500" style="width:0%">
+                <span id="disk-text">Loading...</span>
+            </div>
+        </div>
+        <div class="mt-2 grid grid-cols-3 gap-2 text-xs text-gray-400">
+            <div>Used: <span id="disk-used" class="text-white">--</span></div>
+            <div>Free: <span id="disk-free" class="text-white">--</span></div>
+            <div>Total: <span id="disk-total" class="text-white">--</span></div>
+        </div>
+    </div>
+
+    {# Disk I/O #}
+    <div class="mb-4">
+        <div class="flex justify-between items-center mb-2">
+            <span class="text-sm font-semibold">Disk I/O (Total Since Boot)</span>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+            <div class="stat-box">
+                <div class="stat-label">Read</div>
+                <div id="disk-read" class="stat-value text-blue-400 text-sm">--</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-label">Write</div>
+                <div id="disk-write" class="stat-value text-green-400 text-sm">--</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="pt-3 border-t border-gray-700 text-center text-sm text-gray-400">
+        Active Processes: <span id="process-count" class="text-white font-semibold">--</span>
+    </div>
+</div>

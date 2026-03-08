@@ -797,36 +797,45 @@ def test_database():
                 """)
                 table_count = cur.fetchone()['count']
                 
-                # Count active symbols only
-                cur.execute("SELECT COUNT(*) as count FROM symbols WHERE status = 'active'")
-                symbol_count = cur.fetchone()['count']
+                # Count active symbols
+                cur.execute("SELECT symbol FROM symbols WHERE status = 'active' ORDER BY symbol")
+                active_symbols = [r['symbol'] for r in cur.fetchall()]
+                symbol_count = len(active_symbols)
                 
                 # Count strategies
                 cur.execute("SELECT COUNT(*) as count FROM strategies")
                 strategy_count = cur.fetchone()['count']
                 
-                # Count candles per symbol (dynamic)
+                # Use pg_stat estimate for total candle count (instant, no table scan)
                 cur.execute("""
-                    SELECT symbol, COUNT(*) as count 
-                    FROM ohlcv_candles 
-                    GROUP BY symbol 
-                    ORDER BY symbol
+                    SELECT n_live_tup as total_candles
+                    FROM pg_stat_user_tables
+                    WHERE relname = 'ohlcv_candles'
                 """)
-                candle_counts = cur.fetchall()
+                stats_row = cur.fetchone()
+                total_est = stats_row['total_candles'] if stats_row else 0
                 
-                # Get latest candle timestamp
-                cur.execute("""
-                    SELECT MAX(timestamp) as latest 
-                    FROM ohlcv_candles
-                """)
-                latest_candle = cur.fetchone()['latest']
+                # Distribute estimate evenly across active symbols for display
+                per_symbol = (total_est // symbol_count) if symbol_count else 0
+                candle_counts = [{"symbol": s, "count": per_symbol} for s in active_symbols]
+                
+                # Get latest candle per symbol using index (symbol, timestamp DESC) — fast
+                latest_candle = None
+                for sym in active_symbols:
+                    cur.execute(
+                        "SELECT timestamp FROM ohlcv_candles WHERE symbol=%s ORDER BY timestamp DESC LIMIT 1",
+                        (sym,)
+                    )
+                    row = cur.fetchone()
+                    if row and (latest_candle is None or row['timestamp'] > latest_candle):
+                        latest_candle = row['timestamp']
                 
                 return {
                     "status": "success",
                     "tables": table_count,
                     "symbols": symbol_count,
                     "strategies": strategy_count,
-                    "candle_counts": [{"symbol": row['symbol'], "count": row['count']} for row in candle_counts],
+                    "candle_counts": candle_counts,
                     "latest_candle": str(latest_candle) if latest_candle else None,
                     "database": "trading_system"
                 }

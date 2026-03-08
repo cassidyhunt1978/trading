@@ -4,6 +4,9 @@
 document.addEventListener('DOMContentLoaded', () => {
     console.log('Trading UI initialized');
 
+    // ─ Real-time SSE/polling module ─────────────────────────────────────
+    window.initRealtimeConnection && window.initRealtimeConnection();
+
     // Run initial health check in background
     if (window.checkSystemHealthBackground) {
         window.checkSystemHealthBackground();
@@ -53,12 +56,11 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }, 60000);
 
-    // Symbol cards: refresh every 2 minutes while on portfolio
+    // Symbol cards: refresh every 2 minutes — use loadSymbols so signals fetched once
     setInterval(() => {
         const tab = document.getElementById('tab-portfolio');
         if (tab?.classList.contains('active')) {
             window.loadSymbolStats && window.loadSymbolStats();
-            (window._symbolsCache || []).forEach(s => window.loadSymbolData && window.loadSymbolData(s.symbol));
         }
     }, 120000);
 
@@ -92,12 +94,10 @@ function _initPortfolio() {
     // Load pnl card internals (updates hidden spans used by dash header)
     window.loadPnlCard && window.loadPnlCard('paper');
     window.loadPositions && window.loadPositions();
-    // Load symbol cards into #symbols-grid
-    window.loadDashboardSymbols && window.loadDashboardSymbols();
-    // Mini equity + compact header stats
-    setTimeout(() => {
-        window.loadMiniEquity && window.loadMiniEquity(30);
-        window.refreshDashboardHeader && window.refreshDashboardHeader();
-    }, 600);
+    // Highlights row: discoveries / strategies / regimes
+    window.loadPortfolioHighlights && window.loadPortfolioHighlights();
+    // Mini equity + compact header stats (fire immediately, no artificial delay)
+    window.loadMiniEquity && window.loadMiniEquity(30);
+    window.refreshDashboardHeader && window.refreshDashboardHeader();
 }
 window._initPortfolio = _initPortfolio;

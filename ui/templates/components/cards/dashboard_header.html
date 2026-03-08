@@ -1,0 +1,63 @@
+{#
+  dashboard_header.html — The compact stats / equity curve header shown on the Portfolio page.
+  Requires: dash-value, dash-daily, dash-winrate, dash-open, dash-signals, dash-fee-drag,
+            mini-equity-canvas, dash-live-balances
+#}
+<div class="bg-gray-800 rounded-xl border border-gray-700 p-3 mb-4 shadow">
+    {# Row 1: stats + mode controls #}
+    <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
+        <div class="flex items-center gap-4 flex-wrap">
+            <div>
+                <div class="text-xs text-gray-500">Account Value</div>
+                <div class="text-xl font-bold text-blue-400" id="dash-value">$--</div>
+            </div>
+            <div>
+                <div class="text-xs text-gray-500">Today P&amp;L</div>
+                <div class="text-lg font-semibold" id="dash-daily">--</div>
+            </div>
+            <div>
+                <div class="text-xs text-gray-500">Win Rate</div>
+                <div class="text-lg font-semibold" id="dash-winrate">--%</div>
+            </div>
+            <div>
+                <div class="text-xs text-gray-500">Open Positions</div>
+                <div class="text-lg font-semibold text-purple-400" id="dash-open">0</div>
+            </div>
+            <div>
+                <div class="text-xs text-gray-500">Active Signals</div>
+                <div class="text-lg font-semibold text-green-400" id="dash-signals">--</div>
+            </div>
+            <div>
+                <div class="text-xs text-gray-500">Fee Drag</div>
+                <div class="text-sm font-semibold text-yellow-400" id="dash-fee-drag">--%</div>
+            </div>
+        </div>
+        <div class="flex gap-2 items-center flex-wrap">
+            <button onclick="switchPnlMode('paper')" id="pnl-mode-paper"
+                    class="px-3 py-1 rounded text-xs font-semibold bg-blue-600 text-white">📄 Paper</button>
+            <button onclick="switchPnlMode('live')" id="pnl-mode-live"
+                    class="px-3 py-1 rounded text-xs font-semibold bg-gray-700 text-gray-300 hover:bg-gray-600">🔴 Live</button>
+            <button onclick="openPortfolioWhyModal()"
+                    class="px-3 py-1 rounded text-xs font-semibold bg-purple-700 hover:bg-purple-600 text-white"
+                    title="Why these trades?">🧠 Why?</button>
+        </div>
+    </div>
+
+    {# Kraken live balances strip (live mode only) #}
+    <div id="dash-live-balances" class="flex flex-wrap gap-2 mt-2" style="display:none"></div>
+
+    {# Row 2: equity curve #}
+    <div class="flex items-center gap-2">
+        <div class="relative flex-1" style="height:64px; min-width:0">
+            <canvas id="mini-equity-canvas"></canvas>
+            <div id="mini-equity-empty"
+                 class="absolute inset-0 flex items-center justify-center text-xs text-gray-600"
+                 style="display:none!important">No P&amp;L data yet</div>
+        </div>
+        <div class="flex gap-1 shrink-0">
+            <button onclick="loadMiniEquity(7)"  data-days="7"  class="mini-eq-btn px-2 py-0.5 rounded bg-gray-700 hover:bg-gray-600 text-xs">7d</button>
+            <button onclick="loadMiniEquity(30)" data-days="30" class="mini-eq-btn px-2 py-0.5 rounded bg-blue-600 text-xs">30d</button>
+            <button onclick="loadMiniEquity(90)" data-days="90" class="mini-eq-btn px-2 py-0.5 rounded bg-gray-700 hover:bg-gray-600 text-xs">90d</button>
+        </div>
+    </div>
+</div>

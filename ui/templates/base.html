@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>{% block title %}Crypto Trading{% endblock %}</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%231f2937'/><path d='M6 22 L10 18 L14 20 L18 14 L22 16 L26 10' stroke='%2310b981' stroke-width='2' fill='none'/></svg>">
+
+    {# Suppress Tailwind CDN warning before the script loads #}
+    <script>
+        if (typeof window !== 'undefined') {
+            window.tailwindConfig = { corePlugins: { preflight: true } };
+            const _origWarn = console.warn;
+            console.warn = function(...a) {
+                if (a[0]?.includes?.('cdn.tailwindcss.com')) return;
+                _origWarn.apply(console, a);
+            };
+        }
+    </script>
+
+    {# CDN dependencies — loaded once, cached by browser #}
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+
+    <link rel="stylesheet" href="/css/app.css">
+
+    {% block head_extra %}{% endblock %}
+</head>
+<body class="bg-gray-900 text-gray-100">
+
+    {# ── Navigation ── #}
+    {% include 'components/nav.html' %}
+
+    {# ── Page content ── #}
+    <div class="max-w-7xl mx-auto">
+        {% block content %}{% endblock %}
+    </div>
+
+    {# ── Shared modals (always present in DOM) ── #}
+    {% include 'modals/modal_overlay.html' %}
+    {% include 'modals/drilldown_modal.html' %}
+
+    {# ── Core JS (every page needs these) ── #}
+    <script src="/js/core/config.js"></script>
+    <script src="/js/core/utils.js"></script>
+    <script src="/js/core/modal.js"></script>
+
+    {# ── Component renderers (shared) ── #}
+    <script src="/js/components/signal-renderer.js"></script>
+    <script src="/js/components/position-renderer.js"></script>
+
+    {# ── Real-time polling (compact header needs it on every page) ── #}
+    <script src="/js/realtime.js"></script>
+
+    {# ── Page-specific scripts ── #}
+    {% block page_scripts %}{% endblock %}
+
+</body>
+</html>

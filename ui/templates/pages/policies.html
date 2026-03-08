@@ -1,0 +1,16 @@
+{% extends 'base.html' %}
+
+{% block title %}Policies — Crypto Trading{% endblock %}
+
+{% block head_extra %}
+{# Force the tab-content div visible since this is a standalone page #}
+<style>#tab-policies { display: block !important; }</style>
+{% endblock %}
+
+{% block content %}
+{% include 'tabs/policies.html' %}
+{% endblock %}
+
+{% block page_scripts %}
+<script src="/js/pages/policies.js"></script>
+{% endblock %}

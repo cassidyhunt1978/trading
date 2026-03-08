@@ -11,7 +11,7 @@ async function loadSymbols() {
             return;
         }
         
-        const response = await fetch('http://localhost:8012/symbols');
+        const response = await fetch(`http://${window.API_HOST}:8012/symbols`);
         const data = await response.json();
         
         if (data.status === 'success') {
@@ -89,7 +89,7 @@ async function addSymbol(event) {
     const exchange = document.getElementById('symbolExchange').value;
     
     try {
-        const response = await fetch('http://localhost:8012/symbols/add', {
+        const response = await fetch(`http://${window.API_HOST}:8012/symbols/add`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ symbol, name, exchange })
@@ -117,7 +117,7 @@ async function addSymbolQuick(symbol, name) {
         btn.disabled = true;
         btn.textContent = '...';
         
-        const response = await fetch('http://localhost:8012/symbols/add', {
+        const response = await fetch(`http://${window.API_HOST}:8012/symbols/add`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ symbol, name, exchange: 'kraken' })
@@ -165,7 +165,7 @@ async function addAllPopularSymbols() {
     let added = 0;
     for (const [symbol, name] of symbols) {
         try {
-            const response = await fetch('http://localhost:8012/symbols/add', {
+            const response = await fetch(`http://${window.API_HOST}:8012/symbols/add`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ symbol, name, exchange: 'kraken' })
@@ -192,7 +192,7 @@ async function addAllPopularSymbols() {
 
 async function toggleSymbol(symbol) {
     try {
-        const response = await fetch(`http://localhost:8012/symbols/${symbol}/toggle`, {
+        const response = await fetch(`http://${window.API_HOST}:8012/symbols/${symbol}/toggle`, {
             method: 'PUT'
         });
         

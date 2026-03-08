@@ -56,6 +56,8 @@ async function switchPnlMode(mode) {
     // Reload data for selected mode
     console.log(`[MODE SWITCH] Loading data for mode: ${mode}`);
     await loadPnlCard(mode);
+    // Refresh the compact dashboard header to reflect the new mode
+    refreshDashboardHeader();
     console.log(`[MODE SWITCH] Data loaded for mode: ${mode}`);
 }
 
@@ -76,15 +78,19 @@ async function loadPnlCard(mode = 'paper') {
         let portfolio = {};
         let portfolioExists = false;
         
-        // Fetch portfolio state (suppress console errors for expected 404s)
+        // Fire portfolio + both position fetches in parallel (paper mode optimization).
+        // For live-without-portfolio edge case we fall through to the existing guard below.
+        const [portfolioFetch, closedPreFetch, openPreFetch] = await Promise.allSettled([
+            fetch(`http://${window.API_HOST}:8016/portfolio?mode=${mode}`),
+            fetch(`http://${window.API_HOST}:8016/positions?mode=${mode}&status=closed&position_type=ensemble`),
+            fetch(`http://${window.API_HOST}:8016/positions?mode=${mode}&status=open&position_type=ensemble`),
+        ]);
+
+        // Process portfolio result
         try {
-            const portfolioUrl = `http://${window.API_HOST}:8016/portfolio?mode=${mode}`;
-            console.log(`[PNL CARD] Fetching portfolio from: ${portfolioUrl}`);
-            const portfolioResponse = await fetch(portfolioUrl);
-            
-            if (portfolioResponse.ok) {
-                const data = await portfolioResponse.json();
-                // Check if it's an error response
+            if (portfolioFetch.status === 'fulfilled' && portfolioFetch.value.ok) {
+                const data = await portfolioFetch.value.json();
+                console.log(`[PNL CARD] Fetching portfolio from: http://${window.API_HOST}:8016/portfolio?mode=${mode}`);
                 if (data.detail && data.detail.includes('No portfolio found')) {
                     portfolioExists = false;
                 } else {
@@ -93,7 +99,6 @@ async function loadPnlCard(mode = 'paper') {
                 }
             }
         } catch (error) {
-            // Portfolio fetch failed - this is expected for live mode if not started
             console.log(`Portfolio not found for ${mode} mode - this is normal if ${mode} trading hasn't started yet`);
         }
         
@@ -156,15 +161,11 @@ async function loadPnlCard(mode = 'paper') {
             return;
         }
         
-        // Fetch positions for stats (ensemble only - actual portfolio trades)
-        const positionsResponse = await fetch(`http://${window.API_HOST}:8016/positions?mode=${mode}&status=closed&position_type=ensemble`);
-        const positionsData = await positionsResponse.json();
-        const closedPositions = positionsData.positions || [];
-        
-        // Fetch open positions (ensemble only)
-        const openResponse = await fetch(`http://${window.API_HOST}:8016/positions?mode=${mode}&status=open&position_type=ensemble`);
-        const openData = await openResponse.json();
-        const openPositions = openData.positions || [];
+        // Use the pre-fetched position responses (fired in parallel with portfolio above)
+        const closedPositions = (closedPreFetch.status === 'fulfilled' && closedPreFetch.value.ok)
+            ? ((await closedPreFetch.value.json()).positions || []) : [];
+        const openPositions = (openPreFetch.status === 'fulfilled' && openPreFetch.value.ok)
+            ? ((await openPreFetch.value.json()).positions || []) : [];
         
         // Calculate metrics
         const totalCapital = portfolio.total_capital || 0;
@@ -1689,31 +1690,77 @@ window.loadMiniEquity   = loadMiniEquity;
 // ─── Dashboard compact header refresh ────────────────────────────────────
 async function refreshDashboardHeader() {
     try {
+        const mode = currentPnlMode || 'paper';
+        const el = id => document.getElementById(id);
+
         const [portRes, sigRes] = await Promise.allSettled([
-            fetch(`http://${window.API_HOST}:8016/portfolio?mode=paper`),
+            fetch(`http://${window.API_HOST}:8016/portfolio?mode=${mode}`),
             fetch(`http://${window.API_HOST}:8015/signals/stats`),
         ]);
+
+        let portfolioFound = false;
         if (portRes.status === 'fulfilled' && portRes.value.ok) {
             const p = await portRes.value.json();
-            const portfolio = p.portfolio || p;
-            const val = portfolio.total_portfolio_value ?? portfolio.total_capital ?? 0;
-            const daily = portfolio.todays_pnl ?? portfolio.daily_pnl ?? 0;
-            const winRate = portfolio.win_rate_today ?? 0;
-            const openPos = portfolio.open_positions ?? portfolio.open_position_count ?? 0;
-            const el = id => document.getElementById(id);
-            if (el('dash-value'))   el('dash-value').textContent = '$' + parseFloat(val).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
-            if (el('dash-daily')) {
-                el('dash-daily').textContent = (daily >= 0 ? '+$' : '-$') + Math.abs(daily).toFixed(2);
-                el('dash-daily').className  = 'text-lg font-semibold ' + (daily >= 0 ? 'text-green-400' : 'text-red-400');
+            if (!p.detail) {
+                const portfolio = p.portfolio || p;
+                const daily = portfolio.todays_pnl ?? portfolio.daily_pnl ?? 0;
+                const winRate = portfolio.win_rate_today ?? 0;
+                const openPos = portfolio.open_positions ?? portfolio.open_position_count ?? 0;
+                // Only use portfolio's capital value in paper mode; live always reads Kraken
+                if (mode !== 'live') {
+                    const val = portfolio.total_portfolio_value ?? portfolio.total_capital ?? 0;
+                    if (el('dash-value'))   el('dash-value').textContent = '$' + parseFloat(val).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+                    if (el('dash-value'))   el('dash-value').className = 'text-xl font-bold text-blue-400';
+                }
+                if (el('dash-daily')) {
+                    el('dash-daily').textContent = (daily >= 0 ? '+$' : '-$') + Math.abs(daily).toFixed(2);
+                    el('dash-daily').className  = 'text-lg font-semibold ' + (daily >= 0 ? 'text-green-400' : 'text-red-400');
+                }
+                if (el('dash-winrate')) el('dash-winrate').textContent = parseFloat(winRate).toFixed(0) + '%';
+                if (el('dash-open'))    el('dash-open').textContent = openPos;
+                portfolioFound = true;
             }
-            if (el('dash-winrate')) el('dash-winrate').textContent = parseFloat(winRate).toFixed(0) + '%';
-            if (el('dash-open'))    el('dash-open').textContent = openPos;
         }
+
+        // Live mode: ALWAYS fetch real Kraken balance for account value
+        if (mode === 'live') {
+            try {
+                const balRes = await fetch(`http://${window.API_HOST}:8016/balance/live`);
+                const bal = await balRes.json();
+                if (bal.status === 'success') {
+                    const totalUsd = bal.total_usd ?? 0;
+                    if (el('dash-value')) {
+                        el('dash-value').textContent = '$' + totalUsd.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+                        el('dash-value').className = 'text-xl font-bold text-red-400';
+                    }
+                    // Only show placeholder stats if portfolio had no real data
+                    if (!portfolioFound) {
+                        if (el('dash-daily')) { el('dash-daily').textContent = 'No live trades yet'; el('dash-daily').className = 'text-lg font-semibold text-gray-400'; }
+                        if (el('dash-winrate')) el('dash-winrate').textContent = '--%';
+                        if (el('dash-open'))    el('dash-open').textContent = '0';
+                    }
+                    // Show Kraken per-currency breakdown in the live-balances strip
+                    const strip = el('dash-live-balances');
+                    if (strip && bal.balances) {
+                        strip.innerHTML = Object.entries(bal.balances)
+                            .filter(([, a]) => a.total > 0.00001)
+                            .map(([cur, a]) => `<span class="px-2 py-0.5 bg-gray-700 rounded text-xs"><span class="text-gray-400">${cur}</span> <span class="font-bold text-white">${a.total.toFixed(cur === 'BTC' || cur === 'ETH' ? 6 : 2)}</span> <span class="text-gray-500">(${a.free.toFixed(cur === 'BTC' || cur === 'ETH' ? 6 : 2)} free)</span></span>`)
+                            .join('');
+                        strip.style.display = '';
+                    }
+                }
+            } catch(e) { console.warn('[Dashboard] live balance failed', e); }
+        } else {
+            // Hide the live balances strip in paper mode
+            const strip = el('dash-live-balances');
+            if (strip) strip.style.display = 'none';
+        }
+
         if (sigRes.status === 'fulfilled' && sigRes.value.ok) {
             const s = await sigRes.value.json();
             const active = s.active_signals ?? 0;
-            const el = document.getElementById('dash-signals');
-            if (el) el.textContent = active;
+            const sigEl = document.getElementById('dash-signals');
+            if (sigEl) sigEl.textContent = active;
         }
         // Last signal time from activity tracker
         const lastSig = document.getElementById('activity-last-signal')?.textContent;
@@ -1723,27 +1770,9 @@ async function refreshDashboardHeader() {
 }
 window.refreshDashboardHeader = refreshDashboardHeader;
 
-// ─── Load symbol cards into #symbols-grid (Dashboard tab) ─────────────────
-async function loadDashboardSymbols() {
-    const grid = document.getElementById('symbols-grid');
-    if (!grid) return;
-    // If symbols are already cached (loaded via loadSymbols), just render
-    if (window._symbolsCache && window._symbolsCache.length > 0) {
-        window.renderSymbolCardsFromCache && window.renderSymbolCardsFromCache();
-        // Refresh live data
-        (window._symbolsCache || []).forEach(s => window.loadSymbolData && window.loadSymbolData(s.symbol));
-        window.loadSymbolStats && window.loadSymbolStats();
-        return;
-    }
-    // Otherwise trigger a full load (same as Symbols tab)
-    window.loadSymbolsFull && window.loadSymbolsFull();
-}
-window.loadDashboardSymbols = loadDashboardSymbols;
-
 // ─── refreshDashboard: manual refresh button ─────────────────────────────
 async function refreshDashboard() {
     await refreshDashboardHeader();
     await loadMiniEquity(30);
-    window.loadSymbolsFull && window.loadSymbolsFull();
 }
 window.refreshDashboard = refreshDashboard;

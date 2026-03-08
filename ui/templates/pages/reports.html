@@ -1,0 +1,16 @@
+{% extends 'base.html' %}
+
+{% block title %}Reports — Crypto Trading{% endblock %}
+
+{% block head_extra %}
+{# Force the tab-content div visible since this is a standalone page #}
+<style>#tab-reports { display: block !important; }</style>
+{% endblock %}
+
+{% block content %}
+{% include 'tabs/reports.html' %}
+{% endblock %}
+
+{% block page_scripts %}
+<script src="/js/pages/reports.js"></script>
+{% endblock %}

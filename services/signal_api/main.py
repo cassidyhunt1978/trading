@@ -16,6 +16,20 @@ from shared.logging_config import setup_logging
 settings = get_settings()
 logger = setup_logging('signal_api', settings.log_level)
 
+# ── Simple TTL response cache ────────────────────────────────────────────────
+import time as _time
+_resp_cache: dict = {}
+
+def _cache_get(key: str):
+    entry = _resp_cache.get(key)
+    if entry and _time.monotonic() < entry[1]:
+        return entry[0]
+    return None
+
+def _cache_set(key: str, value, ttl: float = 30.0):
+    _resp_cache[key] = (value, _time.monotonic() + ttl)
+# ─────────────────────────────────────────────────────────────────────────────
+
 app = FastAPI(title="Signal API", version="1.0.0")
 
 app.add_middleware(
@@ -70,6 +84,10 @@ def check_has_performance_data() -> bool:
 @app.get("/signals/active", response_model=List[Signal])
 def get_active_signals(min_quality: int = Query(60, ge=0, le=100)):
     """Get active signals above quality threshold"""
+    cache_key = f"signals_active:{min_quality}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
@@ -85,6 +103,7 @@ def get_active_signals(min_quality: int = Query(60, ge=0, le=100)):
                 signals = [dict(row) for row in cur.fetchall()]
         
         logger.info("active_signals_fetched", count=len(signals))
+        _cache_set(cache_key, signals, ttl=30.0)
         return signals
     
     except Exception as e:
@@ -740,6 +759,10 @@ def evaluate_strategy(symbol: str, strategy: Dict, candles: List[Dict]) -> Optio
 @app.get("/signals/stats")
 def get_signal_stats():
     """Get signal generation statistics"""
+    cache_key = "signals_stats"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
@@ -771,13 +794,15 @@ def get_signal_stats():
                 """)
                 avg_quality = cur.fetchone()['avg_quality'] or 0
         
-        return {
+        result = {
             "status": "success",
             "total_signals": total,
             "active_signals": active,
             "signals_24h_by_type": by_type,
             "avg_quality_24h": float(avg_quality)
         }
+        _cache_set(cache_key, result, ttl=30.0)
+        return result
     
     except Exception as e:
         logger.error("stats_error", error=str(e))
@@ -1834,6 +1859,77 @@ def export_trading_strategy(
 
     except Exception as e:
         logger.error("export_trading_strategy_error", symbol=symbol, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/signals/scan")
+async def scan_signals_for_chart(
+    symbol: str = Query(..., description="Symbol e.g. BTC, ETH"),
+    strategy: Optional[str] = Query(None, description="Strategy ID (int) or name substring"),
+    timeframe: str = Query("15m", description="Candle timeframe used when signal was generated"),
+    limit: int = Query(300, ge=1, le=1000, description="Max signals to return"),
+):
+    """Return historical signals for a symbol/strategy — used for chart overlay arrows.
+
+    The realtime.js chart overlay calls this endpoint to retrieve buy/sell markers
+    that are then drawn as coloured triangles on the Chart.js canvas.
+
+    Returns list of:
+        { signal_type, generated_at, price_at_signal, quality_score, strategy_name }
+    ordered oldest → newest so the chart renderer can iterate left-to-right.
+    """
+    try:
+        sym = symbol.upper().strip()
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                # Build dynamic query — strategy filter is optional
+                base_sql = """
+                    SELECT
+                        s.id,
+                        s.signal_type,
+                        s.generated_at,
+                        s.price_at_signal,
+                        s.quality_score,
+                        st.name AS strategy_name,
+                        st.id   AS strategy_id
+                    FROM signals s
+                    JOIN strategies st ON st.id = s.strategy_id
+                    WHERE s.symbol = %s
+                """
+                params: list = [sym]
+
+                if strategy is not None:
+                    # Accept numeric strategy_id or name substring
+                    if strategy.isdigit():
+                        base_sql += " AND s.strategy_id = %s"
+                        params.append(int(strategy))
+                    else:
+                        base_sql += " AND st.name ILIKE %s"
+                        params.append(f"%{strategy}%")
+
+                base_sql += " ORDER BY s.generated_at ASC LIMIT %s"
+                params.append(limit)
+
+                cur.execute(base_sql, params)
+                rows = cur.fetchall()
+
+        result = []
+        for row in rows:
+            result.append({
+                "id":              row["id"],
+                "signal_type":     row["signal_type"],
+                "generated_at":    row["generated_at"].isoformat(),
+                "price_at_signal": float(row["price_at_signal"]),
+                "quality_score":   row["quality_score"],
+                "strategy_name":   row["strategy_name"],
+                "strategy_id":     row["strategy_id"],
+            })
+
+        logger.info("signals_scan_ok", symbol=sym, strategy=strategy, count=len(result))
+        return {"signals": result, "count": len(result), "symbol": sym}
+
+    except Exception as e:
+        logger.error("signals_scan_error", symbol=symbol, error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 

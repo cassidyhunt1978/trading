@@ -19,8 +19,8 @@ def get_pool():
     
     if pid not in _connection_pools:
         _connection_pools[pid] = pool.ThreadedConnectionPool(
-            1,  # minconn
-            5,  # maxconn (reduced: 13 services × 4 workers × 5 = 260 max connections)
+            2,   # minconn
+            20,  # maxconn — raised from 5; 4-worker services need headroom
             DATABASE_URL
         )
     

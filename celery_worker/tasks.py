@@ -538,6 +538,8 @@ def execute_paper_trades_all_strategies():
             try:
                 projected_return = float(signal['projected_return_pct']) if signal['projected_return_pct'] else 5.0
                 
+                PAPER_FEE_RATE = 0.001  # 0.1% per side
+                entry_fee = position_value * PAPER_FEE_RATE
                 trade_payload = {
                     'symbol': signal['symbol'],
                     'side': 'buy',
@@ -547,7 +549,8 @@ def execute_paper_trades_all_strategies():
                     'strategy_id': int(signal['strategy_id']),
                     'stop_loss_pct': 2.0,
                     'take_profit_pct': projected_return if projected_return > 0 else 5.0,
-                    'position_type': 'strategy'
+                    'position_type': 'strategy',
+                    'entry_fee': round(entry_fee, 4),
                 }
                 
                 response = requests.post(
@@ -1664,6 +1667,8 @@ def execute_ensemble_trades():
                 signal_type = signal['signal_type'].upper()
                 trade_side = signal_type.lower() if signal_type in ['BUY', 'SELL'] else 'buy'
                 
+                PAPER_FEE_RATE = 0.001  # 0.1% per side
+                entry_fee = position_value * PAPER_FEE_RATE
                 trade_payload = {
                     'symbol': signal['symbol'],
                     'side': trade_side,
@@ -1673,7 +1678,8 @@ def execute_ensemble_trades():
                     'strategy_id': int(signal['strategy_id']),
                     'stop_loss_pct': stop_loss_pct,  # AI-optimized or default
                     'take_profit_pct': take_profit_pct,  # AI-optimized or default
-                    'position_type': 'ensemble'  # Mark as ensemble position
+                    'position_type': 'ensemble',  # Mark as ensemble position
+                    'entry_fee': round(entry_fee, 4),
                 }
                 
                 response = requests.post(
@@ -5361,7 +5367,65 @@ celery_app.conf.beat_schedule = {
         'task': 'auto_unblock_symbols',
         'schedule': crontab(hour=5, minute=0),
     },
+
+    # Rediscover symbols/strategies on consecutive losses — every 2 hours check
+    'rediscover-on-losses': {
+        'task': 'rediscover_on_losses',
+        'schedule': 7200.0,  # Every 2 hours
+    },
 }
+
+
+@celery_app.task(name='rediscover_on_losses')
+def rediscover_on_losses():
+    """Check for sustained losses and trigger symbol rediscovery if needed.
+
+    If the last N closed paper trades are all losses, the current symbol/strategy
+    universe may be stale.  Trigger discover_symbols_and_strategies so the system
+    actively searches for better opportunities rather than continuing to trade
+    under-performing setups.
+    """
+    LOSS_THRESHOLD = 5  # consecutive losses to trigger rediscovery
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                # Count the last N closed paper ensemble positions
+                cur.execute("""
+                    SELECT trade_result
+                    FROM positions
+                    WHERE mode = 'paper'
+                      AND position_type = 'ensemble'
+                      AND status = 'closed'
+                      AND exit_time IS NOT NULL
+                    ORDER BY exit_time DESC
+                    LIMIT %s
+                """, (LOSS_THRESHOLD,))
+                recent = [row['trade_result'] for row in cur.fetchall()]
+
+        if len(recent) < LOSS_THRESHOLD:
+            # Not enough closed trades yet to make a judgment
+            logger.info('rediscover_on_losses_skip', reason='insufficient_trades',
+                        closed=len(recent), threshold=LOSS_THRESHOLD)
+            return {'triggered': False, 'reason': 'insufficient_trades'}
+
+        all_losses = all(r in ('loss', 'Loss', 'LOSS') for r in recent)
+        if not all_losses:
+            loss_count = sum(1 for r in recent if r in ('loss', 'Loss', 'LOSS'))
+            logger.info('rediscover_on_losses_ok', consecutive_losses=loss_count,
+                        threshold=LOSS_THRESHOLD)
+            return {'triggered': False, 'consecutive_losses': loss_count}
+
+        # All recent trades were losses — trigger discovery
+        logger.warning('rediscover_on_losses_trigger',
+                       consecutive_losses=LOSS_THRESHOLD,
+                       message='Triggering symbol/strategy rediscovery due to consecutive losses')
+        discover_symbols_and_strategies.delay()
+        return {'triggered': True, 'consecutive_losses': LOSS_THRESHOLD}
+
+    except Exception as e:
+        logger.error('rediscover_on_losses_error', error=str(e))
+        return {'triggered': False, 'error': str(e)}
+
 
 if __name__ == '__main__':
     celery_app.start()

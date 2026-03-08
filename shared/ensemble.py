@@ -16,6 +16,7 @@ Usage:
 
 import json
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Optional
@@ -231,6 +232,28 @@ class EnsembleVoter:
                               total_signals=len(signals),
                               market_regime=market_regime)
 
+        # ── Pre-fetch all AI weight multipliers concurrently ──────────────────
+        # Sequential calls (one per signal at up to 5s each) were the primary
+        # latency bottleneck.  Run them in parallel on a thread pool instead.
+        ai_weight_map: dict = {}  # {signal_id: multiplier}
+        if use_ai and signals:
+            def _fetch_one(sig):
+                info = trust_map.get(sig["strategy_id"], {})
+                return sig["id"], self.ai_weight_signal(
+                    symbol=symbol,
+                    signal_type=sig["signal_type"].upper(),
+                    trust_factor=float(info.get("trust_factor", 0.5)),
+                    profit_factor=float(info.get("profit_factor", 1.0)),
+                    win_rate=float(info.get("win_rate", 50.0)),
+                    strategy_name=info.get("strategy_name", "unknown"),
+                    market_regime=market_regime,
+                    current_price=current_price,
+                )
+            max_workers = min(len(signals), 8)  # cap at 8 concurrent threads
+            with ThreadPoolExecutor(max_workers=max_workers) as ex:
+                for sig_id, mult in ex.map(_fetch_one, signals):
+                    ai_weight_map[sig_id] = mult
+
         # ── Tally weighted votes ──────────────────────────────────────────────
         votes:         list[SignalVote] = []
         buy_weighted   = 0.0
@@ -249,17 +272,7 @@ class EnsembleVoter:
             weight = trust * quality  # base weight
 
             if use_ai:
-                multiplier = self.ai_weight_signal(
-                    symbol=symbol,
-                    signal_type=direction,
-                    trust_factor=trust,
-                    profit_factor=pf,
-                    win_rate=wr,
-                    strategy_name=name,
-                    market_regime=market_regime,
-                    current_price=current_price,
-                )
-                weight *= multiplier
+                weight *= ai_weight_map.get(sig["id"], 1.0)
 
             votes.append(SignalVote(
                 signal_id=sig["id"],

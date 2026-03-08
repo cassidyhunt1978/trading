@@ -1,0 +1,25 @@
+{% extends 'base.html' %}
+{% from 'components/macros.html' import action_btn %}
+
+{% block title %}System — Crypto Trading{% endblock %}
+
+{% block content %}
+<div class="p-4">
+    <div class="grid grid-cols-1 gap-4">
+
+        {# ── System Health Card ── #}
+        {% include 'components/cards/system_health_card.html' %}
+
+        {# ── System Metrics Card ── #}
+        {% include 'components/cards/system_metrics_card.html' %}
+
+        {# ── AfterAction Analysis Card ── #}
+        {% include 'components/cards/afteraction_card.html' %}
+
+    </div>
+</div>
+{% endblock %}
+
+{% block page_scripts %}
+<script src="/js/pages/system.js"></script>
+{% endblock %}

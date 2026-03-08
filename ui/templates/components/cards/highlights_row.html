@@ -1,0 +1,41 @@
+{#
+  highlights_row.html — Portfolio highlights: new symbol discoveries, top strategies, market conditions.
+  Populated by loadPortfolioHighlights() in portfolio.js
+#}
+<div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4" id="portfolio-highlights">
+
+    {# New Discoveries #}
+    <div class="symbol-card p-3">
+        <div class="flex items-center gap-2 mb-2">
+            <span class="text-base">🔭</span>
+            <span class="text-sm font-semibold text-gray-300">New Discoveries</span>
+            <span class="ml-auto text-xs text-gray-500" id="discoveries-age">--</span>
+        </div>
+        <div id="highlights-discoveries" class="space-y-1 text-xs text-gray-400">
+            <div class="text-gray-600">Loading...</div>
+        </div>
+    </div>
+
+    {# Top Trust Strategies #}
+    <div class="symbol-card p-3">
+        <div class="flex items-center gap-2 mb-2">
+            <span class="text-base">🏆</span>
+            <span class="text-sm font-semibold text-gray-300">Top Strategies</span>
+        </div>
+        <div id="highlights-strategies" class="space-y-1 text-xs text-gray-400">
+            <div class="text-gray-600">Loading...</div>
+        </div>
+    </div>
+
+    {# Market Conditions / Regimes #}
+    <div class="symbol-card p-3">
+        <div class="flex items-center gap-2 mb-2">
+            <span class="text-base">🌡️</span>
+            <span class="text-sm font-semibold text-gray-300">Market Conditions</span>
+        </div>
+        <div id="highlights-regimes" class="space-y-1 text-xs text-gray-400">
+            <div class="text-gray-600">Loading...</div>
+        </div>
+    </div>
+
+</div>
